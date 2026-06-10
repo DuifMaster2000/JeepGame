@@ -33,6 +33,9 @@
   #speed{font-family:Impact,"Arial Black",sans-serif;font-size:42px;letter-spacing:.02em;line-height:1}
   #gauge small{font-size:10px;letter-spacing:.22em;color:var(--dim);margin-top:2px}
   #odo{font-size:11px;color:var(--olive);margin-top:5px;letter-spacing:.08em;font-variant-numeric:tabular-nums}
+  #gear{position:absolute;top:30px;right:30px;font-family:Impact,"Arial Black",sans-serif;
+    font-size:20px;color:var(--amber);line-height:1}
+  #gear small{font-size:8px;letter-spacing:.14em;color:var(--dim);display:block;text-align:center;margin-top:-1px}
 
   /* hints */
   #hints{bottom:16px;right:16px;padding:10px 14px;font-size:11.5px;color:var(--dim);
@@ -93,6 +96,7 @@
     <h1>PINE&nbsp;RIDGE <em>TRAIL</em></h1>
     <p>An endless, procedurally generated forest gravel road.<br>
     One seed, infinite kilometres — every tree, rock and bend<br>placed by math, not by hand.</p>
+    <p style="color:var(--olive)">Now with a 6-speed auto gearbox &amp; a 187 km/h top end.</p>
     <p style="color:var(--ink)">Drive with <b>W A S D</b> or arrow keys · <b>Space</b> handbrake<br>
     <b>C</b> camera · <b>L</b> headlights · <b>B</b> brightness · <b>N</b> weather · <b>M</b> sound · <b>R</b> back to road</p>
     <span class="go">Tap to start engine</span>
@@ -113,6 +117,7 @@
     <circle class="val" id="arc" cx="74" cy="74" r="64" stroke-dasharray="301 402" stroke-dashoffset="301"/>
   </svg>
   <div id="speed">0</div><small>KM / H</small><div id="odo">0.00 km</div>
+  <div id="gear">N<small>GEAR</small></div>
 </div>
 
 <div id="hints" class="panel">
@@ -129,6 +134,7 @@
 <script>
   if(!window.THREE){document.write('<script src="three.min.js"><\/script>');}
 </script>
+<script src="https://unpkg.com/@dgreenheck/ez-tree@1.1.0/build/ez-tree.umd.js"></script>
 <script>
 if(!window.THREE){ document.getElementById('err').style.display='flex'; }
 else (function(){
@@ -345,7 +351,7 @@ grassTex.wrapS=grassTex.wrapT=THREE.ClampToEdgeWrapping;
 const M={
   terrain:new THREE.MeshStandardMaterial({map:floorTex,roughness:1,metalness:0,vertexColors:true,envMapIntensity:0.15}),
   road:new THREE.MeshStandardMaterial({map:gravelTex,roughness:0.96,metalness:0,envMapIntensity:0.2}),
-  tree:new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.95,metalness:0,flatShading:true,envMapIntensity:0.18}),
+  tree:new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.95,metalness:0,flatShading:true,side:THREE.DoubleSide,envMapIntensity:0.18}),
   rock:new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.9,metalness:0.05,flatShading:true,envMapIntensity:0.3}),
   grass:new THREE.MeshStandardMaterial({map:grassTex,alphaTest:0.4,side:THREE.DoubleSide,roughness:1,envMapIntensity:0.15}),
   paint:new THREE.MeshStandardMaterial({color:0x77975a,metalness:0.35,roughness:0.32,envMapIntensity:1.0}),
@@ -394,14 +400,109 @@ function mergeParts(parts){
 }
 
 /* ---------------- vegetation template geometries ---------------- */
-const pineGeo=mergeParts([
+
+/* Build a BufferGeometry from an ez-tree preset (branch structure only, vertex-coloured).
+   colorLo is applied at y=0 (bark/trunk), colorHi at the canopy top.
+   Falls back to null if the library didn't load. */
+function buildEzGeo(opts,targetH,colorLo,colorHi,leafColor){
+  const EZ=window['@dgreenheck/ez-tree'];
+  if(!EZ)return null;
+  const t=new EZ.Tree();
+  (function dm(d,s){for(const k in s){if(s[k]!==null&&typeof s[k]==='object'&&!Array.isArray(s[k])){if(!d[k]||typeof d[k]!=='object')d[k]={};dm(d[k],s[k]);}else d[k]=s[k];}})(t.options,opts);
+  t.options.bark.textured=false;t.options.bark.flatShading=true;
+  t.generate();
+
+  /* branch geometry — find scale from max-Y first */
+  const bSrc=t.branchesMesh.geometry.toNonIndexed();
+  const bPa=bSrc.attributes.position.array,bNa=bSrc.attributes.normal?bSrc.attributes.normal.array:null;
+  const bN=bPa.length/3;
+  let maxY=0.001;
+  for(let i=0;i<bN;i++){const y=bPa[i*3+1];if(y>maxY)maxY=y;}
+  const sc=targetH/maxY;
+
+  const P=[],N=[],U=[],C=[];
+  const lo=new THREE.Color(colorLo),hi=new THREE.Color(colorHi!==undefined?colorHi:colorLo);
+  for(let i=0;i<bN;i++){
+    const y=bPa[i*3+1],t01=Math.max(0,Math.min(1,y/maxY));
+    P.push(bPa[i*3]*sc,y*sc,bPa[i*3+2]*sc);
+    N.push(bNa?bNa[i*3]:0,bNa?bNa[i*3+1]:1,bNa?bNa[i*3+2]:0);
+    U.push(0,0);
+    const jit=0.82+Math.random()*0.36;
+    C.push((lo.r+(hi.r-lo.r)*t01)*jit,(lo.g+(hi.g-lo.g)*t01)*jit,(lo.b+(hi.b-lo.b)*t01)*jit);
+  }
+  bSrc.dispose();
+
+  /* leaf geometry — double-billboard quads merged with branches, coloured flat */
+  if(leafColor!==undefined&&t.leavesMesh&&t.leavesMesh.geometry){
+    const lSrc=t.leavesMesh.geometry.toNonIndexed();
+    const lPa=lSrc.attributes.position.array,lNa=lSrc.attributes.normal?lSrc.attributes.normal.array:null;
+    const lN=lPa.length/3;
+    const lc=new THREE.Color(leafColor);
+    for(let i=0;i<lN;i++){
+      P.push(lPa[i*3]*sc,lPa[i*3+1]*sc,lPa[i*3+2]*sc);
+      N.push(lNa?lNa[i*3]:0,lNa?lNa[i*3+1]:1,lNa?lNa[i*3+2]:0);
+      U.push(0,0);
+      const jit=0.75+Math.random()*0.5;
+      C.push(lc.r*jit,lc.g*jit,lc.b*jit);
+    }
+    lSrc.dispose();
+  }
+
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
+  geo.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));
+  geo.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(C,3));
+  return geo;
+}
+
+/* Pine / evergreen — based on ez-tree pine_large preset, low-poly for instancing */
+const pineGeo=buildEzGeo({
+  seed:44166,type:'evergreen',
+  bark:{flatShading:true,textured:false},
+  branch:{
+    levels:1,
+    angle:{1:129,2:16,3:60},
+    children:{0:10,1:2,2:0},
+    force:{direction:{x:0,y:1,z:0},strength:0.009},
+    gnarliness:{0:0.05,1:0.08,2:0,3:0},
+    length:{0:65.25,1:34.85,2:27.25,3:1},
+    radius:{0:1.27,1:0.37,2:0.7,3:0.7},
+    sections:{0:5,1:4,2:3,3:3},
+    segments:{0:5,1:4,2:3,3:3},
+    start:{1:0.29,2:0.14,3:0.3},
+    taper:{0:0.7,1:0.7,2:0.7,3:0.7},
+    twist:{0:0,1:0,2:0,3:0}
+  },
+  leaves:{type:'pine',billboard:'double',count:5,size:2.6,sizeVariance:0.2,alphaTest:0,tint:16777215}
+},9.0,0x7d6248,0x4a8840,0x3a6828)||mergeParts([
   {geo:new THREE.CylinderGeometry(0.10,0.22,3.4,7),pos:[0,1.7,0],col:0x7d6248,jit:0.35},
   {geo:new THREE.ConeGeometry(2.15,2.7,8),pos:[0,3.4,0],col:0x4d7a40,jit:0.30},
   {geo:new THREE.ConeGeometry(1.65,2.4,8),pos:[0,4.8,0],col:0x568546,jit:0.30},
   {geo:new THREE.ConeGeometry(1.15,2.1,7),pos:[0,6.1,0],col:0x60924e,jit:0.30},
   {geo:new THREE.ConeGeometry(0.62,1.6,6),pos:[0,7.3,0],col:0x6aa057,jit:0.30},
 ]);
-const birchGeo=mergeParts([
+
+/* Aspen / deciduous — based on ez-tree aspen_large preset, low-poly for instancing */
+const birchGeo=buildEzGeo({
+  seed:30631,type:'deciduous',
+  bark:{flatShading:true,textured:false},
+  branch:{
+    levels:2,
+    angle:{1:47,2:63,3:7},
+    children:{0:6,1:3,2:0},
+    force:{direction:{x:0,y:1,z:0},strength:0.022},
+    gnarliness:{0:0.05,1:-0.03,2:0.12,3:0.02},
+    length:{0:69.6,1:18.56,2:11.19,3:1},
+    radius:{0:1.11,1:0.58,2:0.7,3:0.7},
+    sections:{0:5,1:4,2:3,3:3},
+    segments:{0:5,1:4,2:3,3:3},
+    start:{1:0.62,2:0.05,3:0},
+    taper:{0:0.7,1:0.13,2:0.7,3:0.7},
+    twist:{0:0,1:0,2:0,3:0}
+  },
+  leaves:{type:'aspen',billboard:'double',count:6,size:3.0,sizeVariance:0.5,alphaTest:0,tint:16777215}
+},8.5,0xc8c4b4,0x7a9438,0x6a9430)||mergeParts([
   {geo:new THREE.CylinderGeometry(0.09,0.16,3.6,6),pos:[0,1.8,0],col:0xd8d4c6,jit:0.45},
   {geo:new THREE.IcosahedronGeometry(1.5,1),pos:[0,4.3,0],scl:[1,1.15,1],col:0x8fb055,jit:0.35},
   {geo:new THREE.IcosahedronGeometry(1.0,1),pos:[0.9,3.6,0.3],col:0x9cba5e,jit:0.35},
@@ -575,14 +676,14 @@ function makeChunk(ci){
   group.add(buildTerrain(ci));
   group.add(buildRoad(ci));
 
-  group.add(scatter(pineGeo,M.tree,120,rnd,ci,(r,z0)=>{
+  group.add(scatter(pineGeo,M.tree,80,rnd,ci,(r,z0)=>{
     const z=z0+r()*CHUNK,x=roadX(z)+(r()<0.5?-1:1)*(8+r()*r()*105);
     const s=0.65+r()*0.95;
     colliders.push([x,z,0.30*s+0.32]);
     _tint.setHSL(0.28+r()*0.06,0.35+r()*0.2,0.42+r()*0.22);
     return{x,y:groundHeight(x,z)-0.25,z,s,sy:s*(0.85+r()*0.5),ry:r()*6.28,c:_tint};
   },true));
-  group.add(scatter(birchGeo,M.tree,36,rnd,ci,(r,z0)=>{
+  group.add(scatter(birchGeo,M.tree,24,rnd,ci,(r,z0)=>{
     const z=z0+r()*CHUNK,x=roadX(z)+(r()<0.5?-1:1)*(9+r()*r()*95);
     const s=0.6+r()*0.8;
     colliders.push([x,z,0.22*s+0.28]);
@@ -872,16 +973,22 @@ function initAudio(){
     if(weather==='storm')rGain.gain.setTargetAtTime(snd.muted?0:0.05,C.currentTime,0.8);
   }catch(e){/* audio unavailable */}
 }
-function updateAudio(vF,throttle,road){
+function updateAudio(rpm,throttle,road,sp,gear){
   if(!snd.ready)return;
-  const sp=Math.abs(vF);
-  const rpm=58+sp*4.4+throttle*34;
-  snd.o1.frequency.setTargetAtTime(rpm,snd.C.currentTime,0.06);
-  snd.o2.frequency.setTargetAtTime(rpm*0.5+2,snd.C.currentTime,0.06);
-  snd.filt.frequency.setTargetAtTime(340+throttle*900+sp*14,snd.C.currentTime,0.1);
-  const g=snd.muted?0:(0.045+throttle*0.055+Math.min(sp/30,1)*0.04);
-  snd.eGain.gain.setTargetAtTime(g,snd.C.currentTime,0.08);
-  const ng=snd.muted?0:Math.min(sp/22,1)*(road?0.13:0.10);
+  const rf=rpm/REDLINE;                       // 0..1 engine load
+  const o1f=42+rf*158;                         // fundamental rises with revs, drops on up-shift
+  snd.o1.frequency.setTargetAtTime(o1f,snd.C.currentTime,0.05);
+  snd.o2.frequency.setTargetAtTime(o1f*0.5+2,snd.C.currentTime,0.05);
+  snd.filt.frequency.setTargetAtTime(320+throttle*1000+rf*1500,snd.C.currentTime,0.08);
+  /* brief throttle-lift dip when shifting up for a believable gear-change punch */
+  if(snd._pg===undefined)snd._pg=gear;
+  if(gear>snd._pg)snd._shift=snd.C.currentTime;
+  snd._pg=gear;
+  let dip=1;
+  if(snd._shift!==undefined){const dts=snd.C.currentTime-snd._shift;if(dts<0.13)dip=0.35+dts/0.13*0.65;}
+  let g=snd.muted?0:(0.04+throttle*0.05+rf*0.055)*dip;
+  snd.eGain.gain.setTargetAtTime(g,snd.C.currentTime,0.05);
+  const ng=snd.muted?0:Math.min(sp/30,1)*(road?0.13:0.10);
   snd.nGain.gain.setTargetAtTime(ng,snd.C.currentTime,0.12);
 }
 
@@ -944,14 +1051,18 @@ addEventListener('keydown',begin,{once:false});
 /* ---------------- car physics state ---------------- */
 const car={
   x:roadX(0),z:0,y:0,heading:Math.atan2(roadDX(0),1),
-  vx:0,vz:0,steer:0,vF:0,accelS:0,
+  vx:0,vz:0,steer:0,vF:0,accelS:0,gear:0,rpm:850,
 };
 const nSmooth=new THREE.Vector3(0,1,0);
 function resetCar(){
   car.x=roadX(car.z);car.heading=Math.atan2(roadDX(car.z),1);
-  car.vx=car.vz=0;car.vF=0;
+  car.vx=car.vz=0;car.vF=0;car.gear=0;car.rpm=850;
 }
-const WHEELBASE=2.45,VMAX=27.5;
+const WHEELBASE=2.45,VMAX=52;            // ~187 km/h top speed
+/* 6-speed gearbox: ceiling speed (m/s) of each gear + torque multiplier */
+const GEAR_TOP  =[9, 17, 26, 36, 45, 52];
+const GEAR_FORCE=[1.25, 0.98, 0.78, 0.62, 0.50, 0.42];
+const IDLE_RPM=850, REDLINE=7000;
 const fwdV=new THREE.Vector3(),sideV=new THREE.Vector3(),tmpA=new THREE.Vector3(),tmpB=new THREE.Vector3();
 
 function physics(dt){
@@ -970,12 +1081,12 @@ function physics(dt){
   const road=onRoad(car.x,car.z);
   let a=0;
   const throttle=input.fwd;
-  if(throttle)a+=9.2*(1-Math.max(vF,0)/VMAX)*(road?1:0.78);
+  if(throttle)a+=15*GEAR_FORCE[car.gear]*(road?1:0.78); // wheel force tapers per gear
   if(input.back){
-    if(vF>0.4)a-=13.5;           // brake
-    else a-=6.0*(1+Math.min(vF,0)/8); // reverse up to ~8 m/s
+    if(vF>0.4)a-=15.5;           // brake
+    else a-=6.5*(1+Math.min(vF,0)/8); // reverse up to ~8 m/s
   }
-  a-=vF*0.022*Math.abs(vF);       // aero drag
+  a-=vF*0.0023*Math.abs(vF);      // aero drag (sets ~50 m/s flat-ground top)
   a-=Math.sign(vF)*(road?0.45:0.9); // rolling resistance
   if(input.hand&&Math.abs(vF)>0.5)a-=Math.sign(vF)*9;
   /* slope along travel */
@@ -985,6 +1096,16 @@ function physics(dt){
   const vFn=vF+a*dt;
   if(Math.abs(vFn)<0.12&&!throttle&&!input.back)vF=0;else vF=vFn;
   vF=clamp(vF,-9,VMAX);
+
+  /* gearbox: pick gear from speed, derive engine RPM within that gear */
+  const fwdV2=Math.max(vF,0);
+  let g=0;while(g<GEAR_TOP.length-1&&fwdV2>=GEAR_TOP[g])g++;
+  car.gear=g;
+  const gLo=g===0?0:GEAR_TOP[g-1],gHi=GEAR_TOP[g];
+  const gFrac=clamp((fwdV2-gLo)/(gHi-gLo),0,1);
+  let targetRpm=IDLE_RPM+(REDLINE-IDLE_RPM)*gFrac;
+  if(fwdV2<0.4)targetRpm=IDLE_RPM+(throttle?(REDLINE-IDLE_RPM)*0.5:0); // rev/idle at standstill
+  car.rpm=lerp(car.rpm,targetRpm,1-Math.exp(-9*dt));
 
   /* lateral grip (gravel slides, handbrake slides a lot) */
   let grip=road?5.2:4.2;
@@ -1114,14 +1235,16 @@ function updateCamera(dt){
 
 /* ---------------- HUD ---------------- */
 const elSpeed=document.getElementById('speed'),elArc=document.getElementById('arc'),
-      elOdo=document.getElementById('odo');
+      elOdo=document.getElementById('odo'),elGear=document.getElementById('gear');
 let odo=0,hudT=0;
 function updateHUD(dt){
   hudT+=dt;if(hudT<0.1)return;hudT=0;
   const kmh=Math.round(Math.hypot(car.vx,car.vz)*3.6);
   elSpeed.textContent=kmh;
-  elArc.style.strokeDashoffset=301-301*Math.min(kmh/110,1);
+  elArc.style.strokeDashoffset=301-301*Math.min(kmh/190,1);
   elOdo.textContent=odo.toFixed(2)+' km';
+  const label=car.vF<-0.4?'R':(car.vF<0.4?'N':String(car.gear+1));
+  elGear.firstChild.textContent=label;
 }
 
 /* ---------------- main loop ---------------- */
@@ -1138,7 +1261,7 @@ function loop(now){
   if((frame++&3)===0)ensureChunks(car.z);
   updateDust(dt);
   updateCamera(dt);
-  updateAudio(car.vF,car.throttle||0,car.road);
+  updateAudio(car.rpm,car.throttle||0,car.road,Math.abs(car.vF),car.gear);
   updateHUD(dt);
   /* shadow camera follows the jeep */
   sun.position.set(car.x+SUN_DIR.x*90,car.y+SUN_DIR.y*90,car.z+SUN_DIR.z*90);
