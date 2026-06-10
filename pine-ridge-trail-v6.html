@@ -33,6 +33,9 @@
   #speed{font-family:Impact,"Arial Black",sans-serif;font-size:42px;letter-spacing:.02em;line-height:1}
   #gauge small{font-size:10px;letter-spacing:.22em;color:var(--dim);margin-top:2px}
   #odo{font-size:11px;color:var(--olive);margin-top:5px;letter-spacing:.08em;font-variant-numeric:tabular-nums}
+  #gear{position:absolute;top:30px;right:30px;font-family:Impact,"Arial Black",sans-serif;
+    font-size:20px;color:var(--amber);line-height:1}
+  #gear small{font-size:8px;letter-spacing:.14em;color:var(--dim);display:block;text-align:center;margin-top:-1px}
 
   /* hints */
   #hints{bottom:16px;right:16px;padding:10px 14px;font-size:11.5px;color:var(--dim);
@@ -93,6 +96,7 @@
     <h1>PINE&nbsp;RIDGE <em>TRAIL</em></h1>
     <p>An endless, procedurally generated forest gravel road.<br>
     One seed, infinite kilometres — every tree, rock and bend<br>placed by math, not by hand.</p>
+    <p style="color:var(--olive)">Now with a 6-speed auto gearbox &amp; a 187 km/h top end.</p>
     <p style="color:var(--ink)">Drive with <b>W A S D</b> or arrow keys · <b>Space</b> handbrake<br>
     <b>C</b> camera · <b>L</b> headlights · <b>B</b> brightness · <b>N</b> weather · <b>M</b> sound · <b>R</b> back to road</p>
     <span class="go">Tap to start engine</span>
@@ -113,6 +117,7 @@
     <circle class="val" id="arc" cx="74" cy="74" r="64" stroke-dasharray="301 402" stroke-dashoffset="301"/>
   </svg>
   <div id="speed">0</div><small>KM / H</small><div id="odo">0.00 km</div>
+  <div id="gear">N<small>GEAR</small></div>
 </div>
 
 <div id="hints" class="panel">
@@ -968,16 +973,22 @@ function initAudio(){
     if(weather==='storm')rGain.gain.setTargetAtTime(snd.muted?0:0.05,C.currentTime,0.8);
   }catch(e){/* audio unavailable */}
 }
-function updateAudio(vF,throttle,road){
+function updateAudio(rpm,throttle,road,sp,gear){
   if(!snd.ready)return;
-  const sp=Math.abs(vF);
-  const rpm=58+sp*4.4+throttle*34;
-  snd.o1.frequency.setTargetAtTime(rpm,snd.C.currentTime,0.06);
-  snd.o2.frequency.setTargetAtTime(rpm*0.5+2,snd.C.currentTime,0.06);
-  snd.filt.frequency.setTargetAtTime(340+throttle*900+sp*14,snd.C.currentTime,0.1);
-  const g=snd.muted?0:(0.045+throttle*0.055+Math.min(sp/30,1)*0.04);
-  snd.eGain.gain.setTargetAtTime(g,snd.C.currentTime,0.08);
-  const ng=snd.muted?0:Math.min(sp/22,1)*(road?0.13:0.10);
+  const rf=rpm/REDLINE;                       // 0..1 engine load
+  const o1f=42+rf*158;                         // fundamental rises with revs, drops on up-shift
+  snd.o1.frequency.setTargetAtTime(o1f,snd.C.currentTime,0.05);
+  snd.o2.frequency.setTargetAtTime(o1f*0.5+2,snd.C.currentTime,0.05);
+  snd.filt.frequency.setTargetAtTime(320+throttle*1000+rf*1500,snd.C.currentTime,0.08);
+  /* brief throttle-lift dip when shifting up for a believable gear-change punch */
+  if(snd._pg===undefined)snd._pg=gear;
+  if(gear>snd._pg)snd._shift=snd.C.currentTime;
+  snd._pg=gear;
+  let dip=1;
+  if(snd._shift!==undefined){const dts=snd.C.currentTime-snd._shift;if(dts<0.13)dip=0.35+dts/0.13*0.65;}
+  let g=snd.muted?0:(0.04+throttle*0.05+rf*0.055)*dip;
+  snd.eGain.gain.setTargetAtTime(g,snd.C.currentTime,0.05);
+  const ng=snd.muted?0:Math.min(sp/30,1)*(road?0.13:0.10);
   snd.nGain.gain.setTargetAtTime(ng,snd.C.currentTime,0.12);
 }
 
@@ -1040,14 +1051,18 @@ addEventListener('keydown',begin,{once:false});
 /* ---------------- car physics state ---------------- */
 const car={
   x:roadX(0),z:0,y:0,heading:Math.atan2(roadDX(0),1),
-  vx:0,vz:0,steer:0,vF:0,accelS:0,
+  vx:0,vz:0,steer:0,vF:0,accelS:0,gear:0,rpm:850,
 };
 const nSmooth=new THREE.Vector3(0,1,0);
 function resetCar(){
   car.x=roadX(car.z);car.heading=Math.atan2(roadDX(car.z),1);
-  car.vx=car.vz=0;car.vF=0;
+  car.vx=car.vz=0;car.vF=0;car.gear=0;car.rpm=850;
 }
-const WHEELBASE=2.45,VMAX=27.5;
+const WHEELBASE=2.45,VMAX=52;            // ~187 km/h top speed
+/* 6-speed gearbox: ceiling speed (m/s) of each gear + torque multiplier */
+const GEAR_TOP  =[9, 17, 26, 36, 45, 52];
+const GEAR_FORCE=[1.25, 0.98, 0.78, 0.62, 0.50, 0.42];
+const IDLE_RPM=850, REDLINE=7000;
 const fwdV=new THREE.Vector3(),sideV=new THREE.Vector3(),tmpA=new THREE.Vector3(),tmpB=new THREE.Vector3();
 
 function physics(dt){
@@ -1066,12 +1081,12 @@ function physics(dt){
   const road=onRoad(car.x,car.z);
   let a=0;
   const throttle=input.fwd;
-  if(throttle)a+=9.2*(1-Math.max(vF,0)/VMAX)*(road?1:0.78);
+  if(throttle)a+=15*GEAR_FORCE[car.gear]*(road?1:0.78); // wheel force tapers per gear
   if(input.back){
-    if(vF>0.4)a-=13.5;           // brake
-    else a-=6.0*(1+Math.min(vF,0)/8); // reverse up to ~8 m/s
+    if(vF>0.4)a-=15.5;           // brake
+    else a-=6.5*(1+Math.min(vF,0)/8); // reverse up to ~8 m/s
   }
-  a-=vF*0.022*Math.abs(vF);       // aero drag
+  a-=vF*0.0023*Math.abs(vF);      // aero drag (sets ~50 m/s flat-ground top)
   a-=Math.sign(vF)*(road?0.45:0.9); // rolling resistance
   if(input.hand&&Math.abs(vF)>0.5)a-=Math.sign(vF)*9;
   /* slope along travel */
@@ -1081,6 +1096,16 @@ function physics(dt){
   const vFn=vF+a*dt;
   if(Math.abs(vFn)<0.12&&!throttle&&!input.back)vF=0;else vF=vFn;
   vF=clamp(vF,-9,VMAX);
+
+  /* gearbox: pick gear from speed, derive engine RPM within that gear */
+  const fwdV2=Math.max(vF,0);
+  let g=0;while(g<GEAR_TOP.length-1&&fwdV2>=GEAR_TOP[g])g++;
+  car.gear=g;
+  const gLo=g===0?0:GEAR_TOP[g-1],gHi=GEAR_TOP[g];
+  const gFrac=clamp((fwdV2-gLo)/(gHi-gLo),0,1);
+  let targetRpm=IDLE_RPM+(REDLINE-IDLE_RPM)*gFrac;
+  if(fwdV2<0.4)targetRpm=IDLE_RPM+(throttle?(REDLINE-IDLE_RPM)*0.5:0); // rev/idle at standstill
+  car.rpm=lerp(car.rpm,targetRpm,1-Math.exp(-9*dt));
 
   /* lateral grip (gravel slides, handbrake slides a lot) */
   let grip=road?5.2:4.2;
@@ -1210,14 +1235,16 @@ function updateCamera(dt){
 
 /* ---------------- HUD ---------------- */
 const elSpeed=document.getElementById('speed'),elArc=document.getElementById('arc'),
-      elOdo=document.getElementById('odo');
+      elOdo=document.getElementById('odo'),elGear=document.getElementById('gear');
 let odo=0,hudT=0;
 function updateHUD(dt){
   hudT+=dt;if(hudT<0.1)return;hudT=0;
   const kmh=Math.round(Math.hypot(car.vx,car.vz)*3.6);
   elSpeed.textContent=kmh;
-  elArc.style.strokeDashoffset=301-301*Math.min(kmh/110,1);
+  elArc.style.strokeDashoffset=301-301*Math.min(kmh/190,1);
   elOdo.textContent=odo.toFixed(2)+' km';
+  const label=car.vF<-0.4?'R':(car.vF<0.4?'N':String(car.gear+1));
+  elGear.firstChild.textContent=label;
 }
 
 /* ---------------- main loop ---------------- */
@@ -1234,7 +1261,7 @@ function loop(now){
   if((frame++&3)===0)ensureChunks(car.z);
   updateDust(dt);
   updateCamera(dt);
-  updateAudio(car.vF,car.throttle||0,car.road);
+  updateAudio(car.rpm,car.throttle||0,car.road,Math.abs(car.vF),car.gear);
   updateHUD(dt);
   /* shadow camera follows the jeep */
   sun.position.set(car.x+SUN_DIR.x*90,car.y+SUN_DIR.y*90,car.z+SUN_DIR.z*90);
