@@ -97,6 +97,7 @@
     <p>An endless, procedurally generated forest gravel road.<br>
     One seed, infinite kilometres — every tree, rock and bend<br>placed by math, not by hand.</p>
     <p style="color:var(--olive)">Now with a 6-speed auto gearbox &amp; a 187 km/h top end.</p>
+    <p style="font-size:10px;color:var(--dim)">Jeep model: "2020 Jeep Gladiator" by Ddiaz Design (Sketchfab) · CC-BY-NC-SA-4.0</p>
     <p style="color:var(--ink)">Drive with <b>W A S D</b> or arrow keys · <b>Space</b> handbrake<br>
     <b>C</b> camera · <b>L</b> headlights · <b>B</b> brightness · <b>N</b> weather · <b>M</b> sound · <b>R</b> back to road</p>
     <span class="go">Tap to start engine</span>
@@ -135,6 +136,9 @@
   if(!window.THREE){document.write('<script src="three.min.js"><\/script>');}
 </script>
 <script src="https://unpkg.com/@dgreenheck/ez-tree@1.1.0/build/ez-tree.umd.js"></script>
+<script>
+  if(window.THREE&&!window.THREE.GLTFLoader){document.write('<script src="GLTFLoader.js"><\/script>');}
+</script>
 <script>
 if(!window.THREE){ document.getElementById('err').style.display='flex'; }
 else (function(){
@@ -554,6 +558,7 @@ function enableCompat(reason){
   lit(M.interior,0x2c2f33);
   lit(M.seat,0x4d4742);
   sun.castShadow=false;renderer.shadowMap.enabled=false;
+  hdMats.forEach(m=>litHD(m));
   toast('Compat lighting enabled ('+reason+') \u2014 materials are now self-lit.');
 }
 function toast(msg){
@@ -736,6 +741,8 @@ function ensureChunks(z){
 }
 
 /* ---------------- THE JEEP ---------------- */
+/* live wheel geometry — updated when the high-detail model swaps in */
+const GEO={track:0.84,zf:1.55,zr:-1.45,r:0.45};
 function box(parent,mat,w,h,d,x,y,z,rx,ry,rz){
   const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);
   m.position.set(x,y,z);
@@ -904,11 +911,11 @@ function buildJeep(){
 
   /* wheels: steer pivots -> spin groups */
   const wheels=[];
-  const wpos=[[0.84,1.55,1],[-0.84,1.55,1],[0.84,-1.45,0],[-0.84,-1.45,0]];
+  const wpos=[[GEO.track,GEO.zf,1],[-GEO.track,GEO.zf,1],[GEO.track,GEO.zr,0],[-GEO.track,GEO.zr,0]];
   for(const[wx,wz,steer]of wpos){
-    const pivot=new THREE.Group();pivot.position.set(wx,0.45,wz);car.add(pivot);
+    const pivot=new THREE.Group();pivot.position.set(wx,GEO.r,wz);car.add(pivot);
     const spin=makeWheel();pivot.add(spin);
-    wheels.push({pivot,spin,steer:!!steer,baseY:0.45,off:0});
+    wheels.push({pivot,spin,steer:!!steer,baseY:GEO.r,off:0});
   }
 
   /* fake contact shadow */
@@ -933,6 +940,144 @@ function buildJeep(){
 }
 const J=buildJeep();
 scene.add(J.car);
+
+/* ---------------- high-detail Gladiator (PBR model swap) ----------------
+   "2020 Jeep Gladiator" by Ddiaz Design — sketchfab.com/ddiaz-design,
+   licence CC-BY-NC-SA-4.0. The source file has ~1100 meshes; we bake every
+   static part into one merged mesh per material (~25 draw calls) and mount
+   the four wheel meshes into the existing steer/spin pivots, so all wheel
+   animations and the suspension keep working unchanged. The primitive jeep
+   stays as an instant fallback while the model streams in (or if it can't:
+   offline, file:// CORS, software GPU). */
+const hdMats=[];
+function litHD(m){
+  m.emissive=m.color?m.color.clone():new THREE.Color(0xffffff);
+  if(m.map)m.emissiveMap=m.map;
+  m.emissiveIntensity=0.55;m.needsUpdate=true;compatMats.push([m,0.55]);
+}
+function bakeMerged(items){
+  let vt=0,it=0;
+  for(const m of items){const g=m.geometry;vt+=g.attributes.position.count;it+=g.index?g.index.count:g.attributes.position.count;}
+  const P=new Float32Array(vt*3),N=new Float32Array(vt*3),U=new Float32Array(vt*2);
+  const X=vt>65535?new Uint32Array(it):new Uint16Array(it);
+  const v=new THREE.Vector3(),nmx=new THREE.Matrix3();
+  let vo=0,io=0;
+  for(const m of items){
+    const g=m.geometry,pa=g.attributes.position,na=g.attributes.normal,ua=g.attributes.uv;
+    nmx.getNormalMatrix(m.matrixWorld);
+    const flip=m.matrixWorld.determinant()<0;
+    for(let i=0;i<pa.count;i++){
+      v.fromBufferAttribute(pa,i).applyMatrix4(m.matrixWorld);
+      P[(vo+i)*3]=v.x;P[(vo+i)*3+1]=v.y;P[(vo+i)*3+2]=v.z;
+      if(na)v.fromBufferAttribute(na,i).applyMatrix3(nmx).normalize();else v.set(0,1,0);
+      N[(vo+i)*3]=v.x;N[(vo+i)*3+1]=v.y;N[(vo+i)*3+2]=v.z;
+      if(ua){U[(vo+i)*2]=ua.getX(i);U[(vo+i)*2+1]=ua.getY(i);}
+    }
+    const idx=g.index,n=idx?idx.count:pa.count;
+    for(let i=0;i<n;i+=3){
+      const a=(idx?idx.getX(i):i)+vo,b=(idx?idx.getX(i+1):i+1)+vo,c=(idx?idx.getX(i+2):i+2)+vo;
+      X[io+i]=a;X[io+i+1]=flip?c:b;X[io+i+2]=flip?b:c;
+    }
+    vo+=pa.count;io+=n;
+  }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(P,3));
+  geo.setAttribute('normal',new THREE.BufferAttribute(N,3));
+  geo.setAttribute('uv',new THREE.BufferAttribute(U,2));
+  geo.setIndex(new THREE.BufferAttribute(X,1));
+  return geo;
+}
+function swapInHD(root){
+  root.updateMatrixWorld(true);
+  /* normalise unit scale: the FBX hierarchy bakes ~100x too small.
+     The real Gladiator wheelbase is 3.50 m — measure and rescale to match. */
+  const fw=root.getObjectByName('polySurface1'),rw=root.getObjectByName('polySurface4103');
+  if(!fw||!rw)return false;
+  const pa=new THREE.Vector3(),pb=new THREE.Vector3();
+  fw.getWorldPosition(pa);rw.getWorldPosition(pb);
+  const sc=3.50/Math.abs(pa.z-pb.z);
+  if(!isFinite(sc))return false;
+  if(Math.abs(sc-1)>0.01){root.scale.multiplyScalar(sc);root.updateMatrixWorld(true);}
+  /* the four wheels live in these nodes (geometry centred, position in node matrix) */
+  const wheelNames=['polySurface1','polySurface4102','polySurface4103','polySurface6152'];
+  const wheelMeshes=[],wheelSet=new Set();
+  for(const nm of wheelNames){
+    const node=root.getObjectByName(nm);
+    if(!node)return false;
+    node.traverse(o=>{wheelSet.add(o);if(o.isMesh)wheelMeshes.push(o);});
+  }
+  if(wheelMeshes.length!==4)return false;
+  /* merge all static meshes into one draw call per material */
+  const buckets=new Map();
+  root.traverse(o=>{
+    if(o.isMesh&&!wheelSet.has(o)){
+      if(!buckets.has(o.material))buckets.set(o.material,[]);
+      buckets.get(o.material).push(o);
+    }
+  });
+  const newBody=new THREE.Group();
+  buckets.forEach((items,mat)=>{
+    mat.envMapIntensity=1.0;
+    if(/Paint_Material$/.test(mat.name)){              // firecracker red like the photo
+      mat.color.setHex(0xc81f15);mat.metalness=0.55;mat.roughness=0.3;
+    }
+    if(mat.transparent){mat.depthWrite=false;}
+    if(hdMats.indexOf(mat)<0)hdMats.push(mat);
+    const mesh=new THREE.Mesh(bakeMerged(items),mat);
+    mesh.castShadow=!mat.transparent;
+    newBody.add(mesh);
+  });
+  /* wheels: bake in place, re-centre on the hub, mount in the spin groups */
+  const info=[];
+  for(const m of wheelMeshes){
+    const geo=bakeMerged([m]);
+    geo.computeBoundingBox();
+    const c=geo.boundingBox.getCenter(new THREE.Vector3());
+    const sz=geo.boundingBox.getSize(new THREE.Vector3());
+    geo.translate(-c.x,-c.y,-c.z);
+    if(hdMats.indexOf(m.material)<0)hdMats.push(m.material);
+    info.push({geo,mat:m.material,c,r:Math.max(sz.y,sz.z)/2});
+  }
+  info.sort((a,b)=>(b.c.z-a.c.z)||(b.c.x-a.c.x));      // FL,FR,RL,RR — matches J.wheels
+  const rAvg=(info[0].r+info[1].r+info[2].r+info[3].r)/4;
+  const cyAvg=(info[0].c.y+info[1].c.y+info[2].c.y+info[3].c.y)/4;
+  GEO.r=rAvg;
+  GEO.zf=(info[0].c.z+info[1].c.z)/2;
+  GEO.zr=(info[2].c.z+info[3].c.z)/2;
+  GEO.track=(Math.abs(info[0].c.x)+Math.abs(info[1].c.x)+Math.abs(info[2].c.x)+Math.abs(info[3].c.x))/4;
+  WHEELBASE=GEO.zf-GEO.zr;
+  for(let i=0;i<4;i++){
+    const w=J.wheels[i];
+    w.pivot.remove(w.spin);
+    w.spin.traverse(o=>{if(o.isMesh)o.geometry.dispose();});
+    const spin=new THREE.Group();
+    const mesh=new THREE.Mesh(info[i].geo,info[i].mat);
+    mesh.castShadow=true;spin.add(mesh);
+    w.pivot.add(spin);w.spin=spin;
+    w.pivot.position.x=info[i].c.x;
+    w.pivot.position.z=info[i].c.z;
+    w.baseY=rAvg;
+  }
+  /* swap the body — keep blob shadow & headlight spots (children of car) */
+  const old=J.body;
+  J.car.remove(old);
+  old.traverse(o=>{if(o.isMesh)o.geometry.dispose();});
+  newBody.position.y=rAvg-cyAvg;                       // settle tires onto the ground
+  J.car.add(newBody);
+  J.body=newBody;
+  newBody.add(tailGlow);tailGlow.position.set(0,0.95,-2.9);
+  J.hd=true;
+  if(compatOn)hdMats.forEach(litHD);
+  return true;
+}
+function loadHDJeep(){
+  if(!window.THREE.GLTFLoader)return;
+  if(SOFT_GPU&&!/[?&]hd=1/.test(location.search))return; // software GPU: keep the light model
+  new THREE.GLTFLoader().load('2020_jeep_gladiator.glb',gltf=>{
+    try{swapInHD(gltf.scene);}catch(err){/* keep procedural jeep */}
+  },undefined,()=>{/* offline or file:// — procedural jeep stays */});
+}
+loadHDJeep();
 
 /* ---------------- dust particles ---------------- */
 const NP=220;
@@ -1102,7 +1247,8 @@ function resetCar(){
   car.x=roadX(car.z);car.heading=Math.atan2(roadDX(car.z),1);
   car.vx=car.vz=0;car.vF=0;car.gear=0;car.rpm=850;
 }
-const WHEELBASE=3.0,VMAX=52;             // ~187 km/h top speed
+let WHEELBASE=GEO.zf-GEO.zr;             // updated when the HD model loads
+const VMAX=52;                           // ~187 km/h top speed
 /* 6-speed gearbox: ceiling speed (m/s) of each gear + torque multiplier */
 const GEAR_TOP  =[9, 17, 26, 36, 45, 52];
 const GEAR_FORCE=[1.25, 0.98, 0.78, 0.62, 0.50, 0.42];
@@ -1193,7 +1339,7 @@ function physics(dt){
 
   /* pose on terrain */
   const fx=f2.x,fz=f2.z,sx=s2.x,sz=s2.z;
-  const W=[[0.84,1.55],[-0.84,1.55],[0.84,-1.45],[-0.84,-1.45]];
+  const W=[[GEO.track,GEO.zf],[-GEO.track,GEO.zf],[GEO.track,GEO.zr],[-GEO.track,GEO.zr]];
   let avg=0;const hs=[];
   for(let i=0;i<4;i++){
     const lx=W[i][0],lz=W[i][1];
@@ -1224,7 +1370,7 @@ function physics(dt){
     w.off=lerp(w.off,res,1-Math.exp(-16*dt));
     w.pivot.position.y=w.baseY+w.off;
     if(w.steer)w.pivot.rotation.y=car.steer;
-    w.spin.rotation.x+=vF/0.45*dt;
+    w.spin.rotation.x+=vF/GEO.r*dt;
   }
   J.steeringWheel.rotation.z=-car.steer*2.6;
 
@@ -1235,13 +1381,15 @@ function physics(dt){
 
   /* brake / reverse lights */
   M.tail.emissiveIntensity=(input.back&&vF>0.3)||input.hand?1.8:(weather==='storm'?0.95:0.18);
+  if(J.hd&&tailGlow)tailGlow.intensity=((input.back&&vF>0.3)||input.hand)?1.6:(weather==='storm'?1.4:0);
 
   /* dust from rear wheels */
   const spd=Math.hypot(car.vx,car.vz);
   if(spd>3&&(throttle||Math.abs(vL)>1.5||input.hand)){
-    for(const lx of[0.84,-0.84]){
+    for(const lx of[GEO.track,-GEO.track]){
       if(Math.random()<clamp(spd/18,0.25,0.95)){
-        const wx=car.x+sx*lx+fx*-1.75, wz=car.z+sz*lx+fz*-1.75;
+        const bz=GEO.zr-0.3;
+        const wx=car.x+sx*lx+fx*bz, wz=car.z+sz*lx+fz*bz;
         spawnDust(wx,groundHeight(wx,wz)+0.18,wz,
           -car.vx*0.12+(Math.random()-0.5)*0.8,0.5+Math.random()*0.8,
           -car.vz*0.12+(Math.random()-0.5)*0.8,
