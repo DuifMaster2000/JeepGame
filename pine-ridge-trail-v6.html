@@ -644,12 +644,131 @@ const grassGeo=mergeParts([
   {geo:new THREE.PlaneGeometry(1.1,0.85),pos:[0,0.42,0],rot:[0,Math.PI/2,0],col:0xffffff,jit:0.3},
 ]);
 
+/* ---------------- photoreal maple (hero tree: OBJ model + impostor LOD) ----------------
+   A scanned-style maple (~45k tris, real bark/leaf textures) is far too heavy to
+   instance like the procedural trees, so it renders at full detail only in the
+   chunks around the jeep; farther chunks draw a billboard impostor of the same
+   tree (4 tris) baked once at load into a render target. Assets stream in async
+   like the HD jeep — the procedural forest works without them. */
+const MAPLE={ready:false,perChunk:8,fullRange:1,tpl:null,impGeo:null,barkMat:null,leafMat:null,impMat:null};
+function parseOBJ(text){
+  const vp=[],vt=[],vn=[],P=[],N=[],U=[];let hasN=false;
+  const lines=text.split('\n');
+  for(let li=0;li<lines.length;li++){
+    const L=lines[li],c0=L.charCodeAt(0);
+    if(c0===118){ // 'v'
+      const w=L.split(/\s+/),c1=L.charCodeAt(1);
+      if(c1===32)vp.push(+w[1],+w[2],+w[3]);
+      else if(c1===116)vt.push(+w[1],+w[2]);
+      else if(c1===110)vn.push(+w[1],+w[2],+w[3]);
+    }else if(c0===102){ // 'f' — fan-triangulate polygons
+      const w=L.trim().split(/\s+/),idx=[];
+      for(let i=1;i<w.length;i++){
+        const a=w[i].split('/');
+        idx.push([a[0]|0,(a[1]||0)|0,(a[2]||0)|0]);
+      }
+      for(let i=2;i<idx.length;i++)for(const k of[0,i-1,i]){
+        const f=idx[k];
+        const p=(f[0]>0?f[0]-1:vp.length/3+f[0])*3;
+        P.push(vp[p],vp[p+1],vp[p+2]);
+        if(f[1]){const t=(f[1]-1)*2;U.push(vt[t],vt[t+1]);}else U.push(0,0);
+        if(f[2]){hasN=true;const n=(f[2]-1)*3;N.push(vn[n],vn[n+1],vn[n+2]);}else N.push(0,1,0);
+      }
+    }
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));
+  if(hasN)g.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));
+  else g.computeVertexNormals();
+  return g;
+}
+function loadTexAsync(url,srgb){
+  return new Promise((res,rej)=>{new THREE.TextureLoader().load(url,t=>{
+    if(srgb)t.encoding=THREE.sRGBEncoding;
+    t.anisotropy=renderer.capabilities.getMaxAnisotropy();
+    res(t);
+  },undefined,rej);});
+}
+function bakeMapleImpostor(){
+  const t=MAPLE.tpl;
+  t.branch.computeBoundingBox();t.leaf.computeBoundingBox();
+  const bb=t.branch.boundingBox.clone().union(t.leaf.boundingBox);
+  const w=Math.max(bb.max.x-bb.min.x,bb.max.z-bb.min.z),pad=0.4;
+  const sc=new THREE.Scene();
+  sc.add(new THREE.AmbientLight(0xffffff,0.85)); // ~albedo bake; scene lights re-light the impostor at draw time
+  const dl=new THREE.DirectionalLight(0xffffff,0.35);dl.position.set(0.5,1,0.9);sc.add(dl);
+  sc.add(new THREE.Mesh(t.branch,MAPLE.barkMat));
+  sc.add(new THREE.Mesh(t.leaf,MAPLE.leafMat));
+  const cam=new THREE.OrthographicCamera(bb.min.x-pad,bb.max.x+pad,bb.max.y+pad,bb.min.y-pad,0.1,w*4);
+  cam.position.set(0,0,w*2);cam.lookAt(0,0,0);
+  const rt=new THREE.WebGLRenderTarget(512,512,{generateMipmaps:true,minFilter:THREE.LinearMipmapLinearFilter});
+  rt.texture.encoding=THREE.sRGBEncoding;
+  rt.texture.anisotropy=renderer.capabilities.getMaxAnisotropy();
+  const oldTM=renderer.toneMapping,oldCol=renderer.getClearColor(new THREE.Color()),oldA=renderer.getClearAlpha();
+  renderer.toneMapping=THREE.NoToneMapping; // scene tone mapping is applied when the impostor itself renders
+  renderer.setRenderTarget(rt);
+  renderer.setClearColor(0x3d5a2a,0);      // green RGB under zero alpha so mips don't ring dark
+  renderer.clear();
+  renderer.render(sc,cam);
+  renderer.setRenderTarget(null);
+  renderer.setClearColor(oldCol,oldA);renderer.toneMapping=oldTM;
+  MAPLE.barkMat.needsUpdate=true;MAPLE.leafMat.needsUpdate=true;
+  /* crossed billboard quads matching the baked view exactly (trunk stays aligned on LOD swap) */
+  const x0=bb.min.x-pad,x1=bb.max.x+pad,y0=bb.min.y-pad,y1=bb.max.y+pad;
+  const P=[],N=[],U=[];
+  const quad=(ax,az,bx,bz,nx,nz)=>{
+    P.push(ax,y0,az, bx,y0,bz, bx,y1,bz,  ax,y0,az, bx,y1,bz, ax,y1,az);
+    for(let i=0;i<6;i++)N.push(nx,0,nz);
+    U.push(0,0, 1,0, 1,1, 0,0, 1,1, 0,1);
+  };
+  quad(x0,0,x1,0,0,1);
+  quad(0,x0,0,x1,1,0);
+  MAPLE.impGeo=new THREE.BufferGeometry();
+  MAPLE.impGeo.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
+  MAPLE.impGeo.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));
+  MAPLE.impGeo.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));
+  MAPLE.impMat=new THREE.MeshStandardMaterial({map:rt.texture,alphaTest:0.35,side:THREE.DoubleSide,roughness:1,metalness:0,envMapIntensity:0.08});
+}
+function loadMaple(){
+  if(SOFT_GPU&&!/[?&]hd=1/.test(location.search))return; // software GPU: keep the light forest
+  Promise.all([
+    fetch('assets/maple/MapleTreeStem.obj').then(r=>{if(!r.ok)throw 0;return r.text();}),
+    fetch('assets/maple/MapleTreeLeaves.obj').then(r=>{if(!r.ok)throw 0;return r.text();}),
+    loadTexAsync('assets/maple/maple_bark.png',true),
+    loadTexAsync('assets/maple/maple_leaf.png',true),
+    loadTexAsync('assets/maple/maple_leaf_Mask.png',false),
+  ]).then(([stemTxt,leafTxt,barkTex,leafTex,maskTex])=>{
+    barkTex.wrapS=barkTex.wrapT=THREE.RepeatWrapping; // stem UVs tile far outside 0..1
+    const stem=parseOBJ(stemTxt),leaf=parseOBJ(leafTxt);
+    stem.computeBoundingBox();
+    const s=13.5/Math.max(stem.boundingBox.max.y,0.001); // hero maple ~13.5 m tall
+    stem.scale(s,s,s);leaf.scale(s,s,s);
+    MAPLE.barkMat=new THREE.MeshStandardMaterial({map:barkTex,roughness:0.95,metalness:0,envMapIntensity:0.12});
+    MAPLE.leafMat=new THREE.MeshStandardMaterial({map:leafTex,alphaMap:maskTex,alphaTest:0.4,side:THREE.DoubleSide,
+      roughness:0.85,metalness:0,envMapIntensity:0.12,emissive:0x16300d,emissiveIntensity:0.16});
+    applyWind(MAPLE.leafMat,0.05,0.08);
+    MAPLE.tpl={branch:stem,leaf};
+    bakeMapleImpostor();
+    if(compatOn){
+      selfLit(MAPLE.barkMat,0xffffff,barkTex,0.55);
+      selfLit(MAPLE.leafMat,0xffffff,leafTex,0.55);
+      selfLit(MAPLE.impMat,0xffffff,MAPLE.impMat.map,0.6);
+    }
+    MAPLE.ready=true;
+    /* rebuild loaded chunks once so maples appear everywhere immediately */
+    [...chunks.keys()].forEach(k=>disposeChunk(k));
+    ensureChunks(typeof car!=='undefined'?car.z:0);
+  }).catch(()=>{/* offline or file:// — procedural forest stays */});
+}
+
 /* ---------------- compat self-lit fallback (driver-proof lighting) ---------------- */
 let compatOn=false,fixStage=0,nextTest=40;const compatMats=[];
+function selfLit(m,c,map,k){m.emissive=new THREE.Color(c);if(map)m.emissiveMap=map;
+  m.emissiveIntensity=k||0.62;m.needsUpdate=true;compatMats.push([m,k||0.62]);}
 function enableCompat(reason){
   if(compatOn)return;compatOn=true;
-  const lit=(m,c,map,k)=>{m.emissive=new THREE.Color(c);if(map)m.emissiveMap=map;
-    m.emissiveIntensity=k||0.62;m.needsUpdate=true;compatMats.push([m,k||0.62]);};
+  const lit=selfLit;
   lit(M.terrain,0xffffff,floorTex);
   lit(M.road,0xffffff,gravelTex);
   lit(M.grass,0xffffff,grassTex);
@@ -657,6 +776,11 @@ function enableCompat(reason){
   lit(M.pineLeaf,0x4a7a40);
   lit(M.spruceLeaf,0x3e6e38);
   lit(M.birchLeaf,0x6a9430);
+  if(MAPLE.barkMat){
+    lit(MAPLE.barkMat,0xffffff,MAPLE.barkMat.map,0.55);
+    lit(MAPLE.leafMat,0xffffff,MAPLE.leafMat.map,0.55);
+    if(MAPLE.impMat)lit(MAPLE.impMat,0xffffff,MAPLE.impMat.map,0.6);
+  }
   lit(M.rock,0x807f77);
   lit(M.paint,0xd2241a,null,0.7);
   lit(M.trim,0x303030);
@@ -802,8 +926,8 @@ function scatter2(geos,mats,count,rnd,ci,place,shadow){
     if(!geos[k])continue;
     const m=new THREE.InstancedMesh(geos[k],mats[k],count);
     // alpha-cutout leaves need a matching depth material so their shadows are dappled too
-    if(mats[k].alphaTest>0&&mats[k].map){
-      m.customDepthMaterial=new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking,map:mats[k].map,alphaTest:mats[k].alphaTest});
+    if(mats[k].alphaTest>0&&(mats[k].map||mats[k].alphaMap)){
+      m.customDepthMaterial=new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking,map:mats[k].map,alphaMap:mats[k].alphaMap,alphaTest:mats[k].alphaTest});
     }
     meshes.push(m);
   }
@@ -854,6 +978,19 @@ function makeChunk(ci){
     _tint.setHSL(0.19+r()*0.10,0.38+r()*0.12,0.48+r()*0.28);
     return{x,y:groundHeight(x,z)-0.2,z,s,sy:s*(0.9+r()*0.4),ry:r()*6.28,c:_tint};
   },true));
+  let mapleLOD=null;
+  if(MAPLE.ready){
+    const ms=scatter2([MAPLE.tpl.branch,MAPLE.tpl.leaf,MAPLE.impGeo],[MAPLE.barkMat,MAPLE.leafMat,MAPLE.impMat],MAPLE.perChunk,rnd,ci,(r,z0)=>{
+      const z=z0+r()*CHUNK,x=roadX(z)+(r()<0.5?-1:1)*(10+r()*r()*60);
+      const s=0.75+r()*0.55;
+      colliders.push([x,z,0.5*s+0.25]);
+      _tint.setRGB(0.84+r()*0.28,0.88+r()*0.24,0.80+r()*0.26); // near-white tint: subtle hue/brightness variety per tree
+      return{x,y:groundHeight(x,z)-0.25,z,s,sy:s*(0.92+r()*0.22),ry:r()*6.28,c:_tint};
+    },true);
+    const imp=ms[ms.length-1];imp.castShadow=false;
+    mapleLOD={full:ms.slice(0,-1),imp:[imp]};
+    group.add(...ms);
+  }
   group.add(scatter(bushGeo,M.tree,55,rnd,ci,(r,z0)=>{
     const z=z0+r()*CHUNK,x=roadX(z)+(r()<0.5?-1:1)*(5.6+r()*r()*70);
     _tint.setHSL(0.26+r()*0.08,0.4,0.4+r()*0.25);
@@ -875,20 +1012,28 @@ function makeChunk(ci){
   },false));
 
   scene.add(group);
-  chunks.set(ci,{group,colliders});
+  chunks.set(ci,{group,colliders,lod:mapleLOD});
 }
 function disposeChunk(ci){
   const c=chunks.get(ci);if(!c)return;
   scene.remove(c.group);
   c.group.traverse(o=>{
     if(o.isMesh&&!o.isInstancedMesh)o.geometry.dispose();
+    else if(o.isInstancedMesh&&o.dispose)o.dispose(); // frees per-instance GPU buffers (template geometry is shared)
   });
   chunks.delete(ci);
 }
 function ensureChunks(z){
   const ci=Math.floor(z/CHUNK);
   for(let i=ci-BEHIND;i<=ci+AHEAD;i++)if(!chunks.has(i))makeChunk(i);
-  chunks.forEach((v,k)=>{if(k<ci-BEHIND-1||k>ci+AHEAD+1)disposeChunk(k);});
+  chunks.forEach((v,k)=>{
+    if(k<ci-BEHIND-1||k>ci+AHEAD+1){disposeChunk(k);return;}
+    if(v.lod){ // maple LOD: full geometry near the jeep, baked impostor beyond
+      const near=Math.abs(k-ci)<=MAPLE.fullRange;
+      for(const m of v.lod.full)m.visible=near;
+      for(const m of v.lod.imp)m.visible=!near;
+    }
+  });
 }
 
 /* ---------------- THE JEEP ---------------- */
@@ -1229,6 +1374,7 @@ function loadHDJeep(){
   },undefined,()=>{/* offline or file:// — procedural jeep stays */});
 }
 loadHDJeep();
+loadMaple();
 
 /* ---------------- dust particles ---------------- */
 const NP=220;
@@ -1701,6 +1847,7 @@ addEventListener('resize',()=>{
   renderer.setSize(innerWidth,innerHeight);
 });
 document.addEventListener('visibilitychange',()=>{last=performance.now();});
+window.__dbg={MAPLE,chunks,renderer,car,enableCompat}; // console/testing handle into the IIFE
 })();
 </script>
 </body>
