@@ -353,11 +353,52 @@ const grassTex=canvasTex(128,(g,s)=>{
 });
 grassTex.wrapS=grassTex.wrapT=THREE.ClampToEdgeWrapping;
 
+/* leaf billboard alpha textures — soft, decisive alpha so alphaTest gives clean cutouts */
+const pineNeedleTex=canvasTex(128,(g,s)=>{
+  g.clearRect(0,0,s,s);
+  const cx=s*0.5,cy=s*0.5;
+  // radial fan of thin tapered needle strokes (a small sprig of evergreen)
+  for(let i=0;i<150;i++){
+    const a=texRand()*Math.PI*2;
+    const r0=texRand()*texRand()*6;            // most start near the centre
+    const len=s*0.18+texRand()*s*0.30;
+    const x0=cx+Math.cos(a)*r0,y0=cy+Math.sin(a)*r0;
+    const x1=cx+Math.cos(a)*(r0+len),y1=cy+Math.sin(a)*(r0+len);
+    const v=70+texRand()*70|0;
+    g.strokeStyle=`rgb(${v*0.55|0},${v+18},${v*0.45|0})`;
+    g.lineWidth=1+texRand()*1.6;g.lineCap='round';
+    g.beginPath();g.moveTo(x0,y0);
+    g.quadraticCurveTo((x0+x1)/2+(texRand()-0.5)*6,(y0+y1)/2+(texRand()-0.5)*6,x1,y1);
+    g.stroke();
+  }
+});
+pineNeedleTex.wrapS=pineNeedleTex.wrapT=THREE.ClampToEdgeWrapping;
+const leafClusterTex=canvasTex(128,(g,s)=>{
+  g.clearRect(0,0,s,s);
+  // overlapping soft leaf silhouettes -> a clump of deciduous foliage
+  for(let i=0;i<22;i++){
+    const cx=s*0.5+(texRand()-0.5)*s*0.55;
+    const cy=s*0.5+(texRand()-0.5)*s*0.55;
+    const w=s*0.10+texRand()*s*0.16,h=w*(1.3+texRand()*0.7);
+    const rot=texRand()*Math.PI;
+    const v=80+texRand()*70|0;
+    g.save();g.translate(cx,cy);g.rotate(rot);
+    g.fillStyle=`rgb(${v*0.5|0},${v+22},${v*0.4|0})`;
+    g.beginPath();
+    g.moveTo(0,-h*0.5);
+    g.quadraticCurveTo(w*0.6,-h*0.1,0,h*0.5);   // leaf-shaped blob
+    g.quadraticCurveTo(-w*0.6,-h*0.1,0,-h*0.5);
+    g.fill();
+    g.restore();
+  }
+});
+leafClusterTex.wrapS=leafClusterTex.wrapT=THREE.ClampToEdgeWrapping;
+
 /* ---------------- materials ---------------- */
 const M={
   terrain:new THREE.MeshStandardMaterial({map:floorTex,roughness:1,metalness:0,vertexColors:true,envMapIntensity:0.15}),
   road:new THREE.MeshStandardMaterial({map:gravelTex,roughness:0.96,metalness:0,envMapIntensity:0.2}),
-  tree:new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.95,metalness:0,flatShading:true,side:THREE.DoubleSide,envMapIntensity:0.18}),
+  tree:new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.92,metalness:0,flatShading:true,side:THREE.DoubleSide,envMapIntensity:0.12}),
   rock:new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.9,metalness:0.05,flatShading:true,envMapIntensity:0.3}),
   grass:new THREE.MeshStandardMaterial({map:grassTex,alphaTest:0.4,side:THREE.DoubleSide,roughness:1,envMapIntensity:0.15}),
   paint:new THREE.MeshStandardMaterial({color:0xd2241a,metalness:0.45,roughness:0.28,envMapIntensity:1.1}),
@@ -378,6 +419,40 @@ const M={
   red:new THREE.MeshStandardMaterial({color:0xa01818,roughness:0.55}),
   white:new THREE.MeshStandardMaterial({color:0xdcdcd2,roughness:0.5}),
 };
+/* alpha-cutout foliage materials — smooth-shaded with a touch of subsurface emissive */
+M.pineLeaf=new THREE.MeshStandardMaterial({map:pineNeedleTex,vertexColors:true,alphaTest:0.45,
+  side:THREE.DoubleSide,roughness:0.9,metalness:0,envMapIntensity:0.12,emissive:0x12300f,emissiveIntensity:0.18});
+M.birchLeaf=new THREE.MeshStandardMaterial({map:leafClusterTex,vertexColors:true,alphaTest:0.4,
+  side:THREE.DoubleSide,roughness:0.85,metalness:0,envMapIntensity:0.12,emissive:0x1c3a10,emissiveIntensity:0.22});
+M.spruceLeaf=new THREE.MeshStandardMaterial({map:pineNeedleTex,vertexColors:true,alphaTest:0.45,
+  side:THREE.DoubleSide,roughness:0.9,metalness:0,envMapIntensity:0.1,emissive:0x0d2410,emissiveIntensity:0.16});
+
+/* ---------------- wind: cheap per-vertex sway injected via onBeforeCompile ---------------- */
+const windUniform={value:0};
+function applyWind(mat,amp,heightScale){
+  mat.onBeforeCompile=(shader)=>{
+    shader.uniforms.uTime=windUniform;
+    shader.vertexShader='uniform float uTime;\n'+shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+      #ifdef USE_INSTANCING
+        vec3 windAnchor=instanceMatrix[3].xyz;
+      #else
+        vec3 windAnchor=vec3(0.0);
+      #endif
+      float windPh=windAnchor.x*0.35+windAnchor.z*0.35;
+      float windH=clamp(position.y*${heightScale.toFixed(3)},0.0,1.0);
+      float windS=sin(uTime*1.3+windPh)+0.4*sin(uTime*2.7+windPh*1.7);
+      transformed.x+=windS*${amp.toFixed(3)}*windH;
+      transformed.z+=cos(uTime*1.1+windPh)*${(amp*0.8).toFixed(3)}*windH;`
+    );
+  };
+  mat.customProgramCacheKey=()=>'wind'+amp;
+}
+applyWind(M.pineLeaf,0.06,0.12);
+applyWind(M.birchLeaf,0.07,0.14);
+applyWind(M.spruceLeaf,0.05,0.12);
+applyWind(M.grass,0.05,1.6);
 
 /* ---------------- geometry merge helper (with vertex colors) ---------------- */
 const _col=new THREE.Color();
@@ -430,44 +505,52 @@ function buildEzGeo(opts,targetH,colorLo,colorHi,leafColor){
   for(let i=0;i<bN;i++){const y=bPa[i*3+1];if(y>maxY)maxY=y;}
   const sc=targetH/maxY;
 
-  const P=[],N=[],U=[],C=[];
+  const bP=[],bNorm=[],bU=[],bC=[];
   const lo=new THREE.Color(colorLo),hi=new THREE.Color(colorHi!==undefined?colorHi:colorLo);
   for(let i=0;i<bN;i++){
     const y=bPa[i*3+1],t01=Math.max(0,Math.min(1,y/maxY));
-    P.push(bPa[i*3]*sc,y*sc,bPa[i*3+2]*sc);
-    N.push(bNa?bNa[i*3]:0,bNa?bNa[i*3+1]:1,bNa?bNa[i*3+2]:0);
-    U.push(0,0);
+    bP.push(bPa[i*3]*sc,y*sc,bPa[i*3+2]*sc);
+    bNorm.push(bNa?bNa[i*3]:0,bNa?bNa[i*3+1]:1,bNa?bNa[i*3+2]:0);
+    bU.push(0,0);
     const jit=0.82+Math.random()*0.36;
-    C.push((lo.r+(hi.r-lo.r)*t01)*jit,(lo.g+(hi.g-lo.g)*t01)*jit,(lo.b+(hi.b-lo.b)*t01)*jit);
+    bC.push((lo.r+(hi.r-lo.r)*t01)*jit,(lo.g+(hi.g-lo.g)*t01)*jit,(lo.b+(hi.b-lo.b)*t01)*jit);
   }
   bSrc.dispose();
+  const branch=new THREE.BufferGeometry();
+  branch.setAttribute('position',new THREE.Float32BufferAttribute(bP,3));
+  branch.setAttribute('normal',new THREE.Float32BufferAttribute(bNorm,3));
+  branch.setAttribute('uv',new THREE.Float32BufferAttribute(bU,2));
+  branch.setAttribute('color',new THREE.Float32BufferAttribute(bC,3));
 
-  /* leaf geometry — double-billboard quads merged with branches, coloured flat */
+  /* leaf geometry — billboard quads kept separate, with REAL UVs for the alpha texture */
+  let leaf=null;
   if(leafColor!==undefined&&t.leavesMesh&&t.leavesMesh.geometry){
     const lSrc=t.leavesMesh.geometry.toNonIndexed();
     const lPa=lSrc.attributes.position.array,lNa=lSrc.attributes.normal?lSrc.attributes.normal.array:null;
+    const lUa=lSrc.attributes.uv?lSrc.attributes.uv.array:null;
     const lN=lPa.length/3;
+    const lP=[],lNorm=[],lU=[],lC=[];
     const lc=new THREE.Color(leafColor);
     for(let i=0;i<lN;i++){
-      P.push(lPa[i*3]*sc,lPa[i*3+1]*sc,lPa[i*3+2]*sc);
-      N.push(lNa?lNa[i*3]:0,lNa?lNa[i*3+1]:1,lNa?lNa[i*3+2]:0);
-      U.push(0,0);
+      lP.push(lPa[i*3]*sc,lPa[i*3+1]*sc,lPa[i*3+2]*sc);
+      lNorm.push(lNa?lNa[i*3]:0,lNa?lNa[i*3+1]:1,lNa?lNa[i*3+2]:0);
+      if(lUa){lU.push(lUa[i*2],lUa[i*2+1]);}
+      else{const q=i%6;lU.push((q===1||q===2||q===4)?1:0,(q===2||q===4||q===5)?1:0);} // synth quad UVs
       const jit=0.75+Math.random()*0.5;
-      C.push(lc.r*jit,lc.g*jit,lc.b*jit);
+      lC.push(lc.r*jit,lc.g*jit,lc.b*jit);
     }
     lSrc.dispose();
+    leaf=new THREE.BufferGeometry();
+    leaf.setAttribute('position',new THREE.Float32BufferAttribute(lP,3));
+    leaf.setAttribute('normal',new THREE.Float32BufferAttribute(lNorm,3));
+    leaf.setAttribute('uv',new THREE.Float32BufferAttribute(lU,2));
+    leaf.setAttribute('color',new THREE.Float32BufferAttribute(lC,3));
   }
-
-  const geo=new THREE.BufferGeometry();
-  geo.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
-  geo.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));
-  geo.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));
-  geo.setAttribute('color',new THREE.Float32BufferAttribute(C,3));
-  return geo;
+  return{branch,leaf};
 }
 
 /* Pine / evergreen — based on ez-tree pine_large preset, low-poly for instancing */
-const pineGeo=buildEzGeo({
+const pineTpl=buildEzGeo({
   seed:44166,type:'evergreen',
   bark:{flatShading:true,textured:false},
   branch:{
@@ -485,16 +568,16 @@ const pineGeo=buildEzGeo({
     twist:{0:0,1:0,2:0,3:0}
   },
   leaves:{type:'pine',billboard:'double',count:5,size:2.6,sizeVariance:0.2,alphaTest:0,tint:16777215}
-},9.0,0x7d6248,0x4a8840,0x3a6828)||mergeParts([
+},9.0,0x7d6248,0x4a8840,0x3a6828)||{branch:mergeParts([
   {geo:new THREE.CylinderGeometry(0.10,0.22,3.4,7),pos:[0,1.7,0],col:0x7d6248,jit:0.35},
   {geo:new THREE.ConeGeometry(2.15,2.7,8),pos:[0,3.4,0],col:0x4d7a40,jit:0.30},
   {geo:new THREE.ConeGeometry(1.65,2.4,8),pos:[0,4.8,0],col:0x568546,jit:0.30},
   {geo:new THREE.ConeGeometry(1.15,2.1,7),pos:[0,6.1,0],col:0x60924e,jit:0.30},
   {geo:new THREE.ConeGeometry(0.62,1.6,6),pos:[0,7.3,0],col:0x6aa057,jit:0.30},
-]);
+]),leaf:null};
 
 /* Aspen / deciduous — based on ez-tree aspen_large preset, low-poly for instancing */
-const birchGeo=buildEzGeo({
+const birchTpl=buildEzGeo({
   seed:30631,type:'deciduous',
   bark:{flatShading:true,textured:false},
   branch:{
@@ -512,12 +595,37 @@ const birchGeo=buildEzGeo({
     twist:{0:0,1:0,2:0,3:0}
   },
   leaves:{type:'aspen',billboard:'double',count:6,size:3.0,sizeVariance:0.5,alphaTest:0,tint:16777215}
-},8.5,0xc8c4b4,0x7a9438,0x6a9430)||mergeParts([
+},8.5,0xc8c4b4,0x7a9438,0x6a9430)||{branch:mergeParts([
   {geo:new THREE.CylinderGeometry(0.09,0.16,3.6,6),pos:[0,1.8,0],col:0xd8d4c6,jit:0.45},
   {geo:new THREE.IcosahedronGeometry(1.5,1),pos:[0,4.3,0],scl:[1,1.15,1],col:0x8fb055,jit:0.35},
   {geo:new THREE.IcosahedronGeometry(1.0,1),pos:[0.9,3.6,0.3],col:0x9cba5e,jit:0.35},
   {geo:new THREE.IcosahedronGeometry(0.9,1),pos:[-0.8,3.8,-0.4],col:0x86a64e,jit:0.35},
-]);
+]),leaf:null};
+/* Spruce — a taller, darker evergreen for forest variety */
+const spruceTpl=buildEzGeo({
+  seed:8821,type:'evergreen',
+  bark:{flatShading:true,textured:false},
+  branch:{
+    levels:1,
+    angle:{1:118,2:16,3:60},
+    children:{0:12,1:2,2:0},
+    force:{direction:{x:0,y:1,z:0},strength:0.006},
+    gnarliness:{0:0.04,1:0.06,2:0,3:0},
+    length:{0:72,1:30,2:24,3:1},
+    radius:{0:1.15,1:0.32,2:0.6,3:0.6},
+    sections:{0:5,1:4,2:3,3:3},
+    segments:{0:5,1:4,2:3,3:3},
+    start:{1:0.22,2:0.14,3:0.3},
+    taper:{0:0.72,1:0.7,2:0.7,3:0.7},
+    twist:{0:0,1:0,2:0,3:0}
+  },
+  leaves:{type:'pine',billboard:'double',count:6,size:2.4,sizeVariance:0.25,alphaTest:0,tint:16777215}
+},11.0,0x6a5238,0x3a6e34,0x2c5226)||{branch:mergeParts([
+  {geo:new THREE.CylinderGeometry(0.09,0.20,3.8,7),pos:[0,1.9,0],col:0x6a5238,jit:0.35},
+  {geo:new THREE.ConeGeometry(2.0,3.0,8),pos:[0,3.8,0],col:0x35602e,jit:0.30},
+  {geo:new THREE.ConeGeometry(1.45,2.6,8),pos:[0,5.4,0],col:0x3c6a33,jit:0.30},
+  {geo:new THREE.ConeGeometry(0.9,2.2,7),pos:[0,6.9,0],col:0x437437,jit:0.30},
+]),leaf:null};
 const bushGeo=mergeParts([
   {geo:new THREE.IcosahedronGeometry(0.75,1),pos:[0,0.42,0],scl:[1,0.62,1],col:0x618348,jit:0.4},
   {geo:new THREE.IcosahedronGeometry(0.5,1),pos:[0.5,0.3,0.2],scl:[1,0.6,1],col:0x6e924c,jit:0.4},
@@ -546,6 +654,9 @@ function enableCompat(reason){
   lit(M.road,0xffffff,gravelTex);
   lit(M.grass,0xffffff,grassTex);
   lit(M.tree,0x5b7d45);
+  lit(M.pineLeaf,0x4a7a40);
+  lit(M.spruceLeaf,0x3e6e38);
+  lit(M.birchLeaf,0x6a9430);
   lit(M.rock,0x807f77);
   lit(M.paint,0xd2241a,null,0.7);
   lit(M.trim,0x303030);
@@ -683,6 +794,37 @@ function scatter(geo,mat,count,rnd,ci,place,shadow){
   mesh.frustumCulled=false;
   return mesh;
 }
+/* like scatter, but writes ONE placement pass into several aligned InstancedMeshes
+   (e.g. branches + alpha-cutout leaves). Returns the array of meshes. */
+function scatter2(geos,mats,count,rnd,ci,place,shadow){
+  const meshes=[];
+  for(let k=0;k<geos.length;k++){
+    if(!geos[k])continue;
+    const m=new THREE.InstancedMesh(geos[k],mats[k],count);
+    // alpha-cutout leaves need a matching depth material so their shadows are dappled too
+    if(mats[k].alphaTest>0&&mats[k].map){
+      m.customDepthMaterial=new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking,map:mats[k].map,alphaTest:mats[k].alphaTest});
+    }
+    meshes.push(m);
+  }
+  let n=0;const z0=ci*CHUNK;
+  for(let i=0;i<count;i++){
+    const p=place(rnd,z0);
+    if(!p)continue;
+    tmpQ.setFromEuler(tmpE.set(p.rx||0,p.ry||0,p.rz||0));
+    tmpM.compose(tmpV.set(p.x,p.y,p.z),tmpQ,tmpS.set(p.s,p.sy||p.s,p.s));
+    for(const m of meshes){m.setMatrixAt(n,tmpM);if(p.c)m.setColorAt(n,p.c);}
+    n++;p.i=n-1;
+  }
+  for(const m of meshes){
+    m.count=n;
+    m.instanceMatrix.needsUpdate=true;
+    if(m.instanceColor)m.instanceColor.needsUpdate=true;
+    if(shadow)m.castShadow=true;
+    m.frustumCulled=false;
+  }
+  return meshes;
+}
 const _tint=new THREE.Color();
 function makeChunk(ci){
   const group=new THREE.Group();
@@ -691,18 +833,25 @@ function makeChunk(ci){
   group.add(buildTerrain(ci));
   group.add(buildRoad(ci));
 
-  group.add(scatter(pineGeo,M.tree,80,rnd,ci,(r,z0)=>{
+  group.add(...scatter2([pineTpl.branch,pineTpl.leaf],[M.tree,M.pineLeaf],92,rnd,ci,(r,z0)=>{
     const z=z0+r()*CHUNK,x=roadX(z)+(r()<0.5?-1:1)*(8+r()*r()*105);
     const s=0.65+r()*0.95;
     colliders.push([x,z,0.30*s+0.32]);
-    _tint.setHSL(0.28+r()*0.06,0.35+r()*0.2,0.42+r()*0.22);
+    _tint.setHSL(0.27+r()*0.08,0.33+r()*0.24,0.40+r()*0.26);
     return{x,y:groundHeight(x,z)-0.25,z,s,sy:s*(0.85+r()*0.5),ry:r()*6.28,c:_tint};
   },true));
-  group.add(scatter(birchGeo,M.tree,24,rnd,ci,(r,z0)=>{
+  group.add(...scatter2([spruceTpl.branch,spruceTpl.leaf],[M.tree,M.spruceLeaf],26,rnd,ci,(r,z0)=>{
+    const z=z0+r()*CHUNK,x=roadX(z)+(r()<0.5?-1:1)*(11+r()*r()*100);
+    const s=0.6+r()*0.85;
+    colliders.push([x,z,0.28*s+0.3]);
+    _tint.setHSL(0.30+r()*0.05,0.42+r()*0.18,0.34+r()*0.18);
+    return{x,y:groundHeight(x,z)-0.28,z,s,sy:s*(0.9+r()*0.55),ry:r()*6.28,c:_tint};
+  },true));
+  group.add(...scatter2([birchTpl.branch,birchTpl.leaf],[M.tree,M.birchLeaf],26,rnd,ci,(r,z0)=>{
     const z=z0+r()*CHUNK,x=roadX(z)+(r()<0.5?-1:1)*(9+r()*r()*95);
     const s=0.6+r()*0.8;
     colliders.push([x,z,0.22*s+0.28]);
-    _tint.setHSL(0.21+r()*0.07,0.4,0.5+r()*0.25);
+    _tint.setHSL(0.19+r()*0.10,0.38+r()*0.12,0.48+r()*0.28);
     return{x,y:groundHeight(x,z)-0.2,z,s,sy:s*(0.9+r()*0.4),ry:r()*6.28,c:_tint};
   },true));
   group.add(scatter(bushGeo,M.tree,55,rnd,ci,(r,z0)=>{
@@ -1509,6 +1658,7 @@ function loop(now){
   requestAnimationFrame(loop);
   let dt=Math.min((now-last)/1000,1/25);last=now;
   if(dt<=0)return;
+  windUniform.value=now*0.001;
   physics(dt);
   odo+=Math.hypot(car.vx,car.vz)*dt/1000;
   if((frame++&3)===0)ensureChunks(car.z);
