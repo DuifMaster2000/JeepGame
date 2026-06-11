@@ -33,6 +33,8 @@
   #speed{font-family:Impact,"Arial Black",sans-serif;font-size:42px;letter-spacing:.02em;line-height:1}
   #gauge small{font-size:10px;letter-spacing:.22em;color:var(--dim);margin-top:2px}
   #odo{font-size:11px;color:var(--olive);margin-top:5px;letter-spacing:.08em;font-variant-numeric:tabular-nums}
+  #fps{display:block;font:10.5px/1.4 ui-monospace,Consolas,monospace;color:var(--dim);
+    letter-spacing:.06em;font-variant-numeric:tabular-nums;margin-top:3px;opacity:.8}
   #gear{position:absolute;top:30px;right:30px;font-family:Impact,"Arial Black",sans-serif;
     font-size:20px;color:var(--amber);line-height:1}
   #gear small{font-size:8px;letter-spacing:.14em;color:var(--dim);display:block;text-align:center;margin-top:-1px}
@@ -63,6 +65,32 @@
     text-transform:uppercase;animation:pulse 2.2s infinite}
   @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(232,180,82,.25)}50%{box-shadow:0 0 0 12px rgba(232,180,82,0)}}
   @media (prefers-reduced-motion:reduce){#start .go{animation:none}}
+
+  /* settings menu (Esc) */
+  #settings{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    background:rgba(10,13,9,.55);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);z-index:25}
+  #settings.open{display:flex}
+  #settings .card{width:380px;max-width:92vw;padding:24px 26px;
+    background:var(--glass);border:1px solid var(--edge);border-radius:14px;backdrop-filter:blur(10px)}
+  #settings h2{font-family:Impact,"Arial Black",sans-serif;font-weight:400;font-size:18px;
+    letter-spacing:.14em;color:var(--ink);margin-bottom:2px}
+  #settings .sub{font-size:11px;color:var(--dim);letter-spacing:.06em;margin-bottom:20px}
+  #settings .row{margin:18px 0}
+  #settings .row label{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:12px;letter-spacing:.06em;color:var(--ink);margin-bottom:9px}
+  #settings .row label b{color:var(--amber);font-weight:400;font-variant-numeric:tabular-nums}
+  #settings input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;
+    background:rgba(242,239,230,.18);border-radius:3px;outline:none}
+  #settings input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:18px;height:18px;border-radius:50%;background:var(--amber);cursor:pointer;border:0;
+    box-shadow:0 0 0 4px rgba(232,180,82,.18)}
+  #settings input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;
+    background:var(--amber);cursor:pointer;border:0;box-shadow:0 0 0 4px rgba(232,180,82,.18)}
+  #settings .hint{font-size:10.5px;color:var(--dim);line-height:1.7;margin-top:6px}
+  #settings .close{display:block;width:100%;margin-top:22px;padding:10px;border-radius:8px;
+    border:1px solid rgba(232,180,82,.45);background:none;color:var(--amber);font-size:11px;
+    letter-spacing:.2em;text-transform:uppercase;cursor:pointer}
+  #settings .close:hover{background:rgba(232,180,82,.12)}
 
   /* touch controls */
   #touch{display:none;position:fixed;inset:0;pointer-events:none;z-index:10}
@@ -100,12 +128,26 @@
     <p style="font-size:10px;color:var(--dim)">Jeep model: "2020 Jeep Gladiator" by Ddiaz Design (Sketchfab) · CC-BY-NC-SA-4.0</p>
     <p style="color:var(--ink)">Drive with <b>W A S D</b> or arrow keys · <b>Space</b> handbrake<br>
     <b>Drag</b> to look around · <b>Scroll / pinch</b> to zoom<br>
-    <b>C</b> camera (chase / hood / 360° orbit) · <b>L</b> headlights · <b>B</b> brightness · <b>N</b> weather · <b>M</b> sound · <b>R</b> back to road</p>
+    <b>C</b> camera (chase / hood / 360° orbit) · <b>L</b> headlights · <b>B</b> brightness · <b>N</b> weather · <b>M</b> sound · <b>R</b> back to road<br>
+    <b>Esc</b> settings menu (tree render distance)</p>
     <span class="go">Tap to start engine</span>
   </div>
 </div>
 
-<div id="badge" class="panel"><b>PINE RIDGE TRAIL</b><span id="bsub">procedural forest · v6</span></div>
+<div id="settings">
+  <div class="card">
+    <h2>SETTINGS</h2>
+    <div class="sub">performance &amp; experiments</div>
+    <div class="row">
+      <label>Tree render distance <b id="rdVal">300 m</b></label>
+      <input type="range" id="rdSlider" min="2" max="12" step="1" value="5">
+      <div class="hint">How many forest chunks load ahead of the jeep. Lower = faster, less foliage drawn. Watch the FPS/draw-call readout while you adjust.</div>
+    </div>
+    <button class="close" id="rdClose">Resume — Esc</button>
+  </div>
+</div>
+
+<div id="badge" class="panel"><b>PINE RIDGE TRAIL</b><span id="bsub">procedural forest · v6</span><span id="fps">-- FPS</span></div>
 
 <div id="pills">
   <div class="pill panel" id="pCam" title="Camera (C)">CHASE</div>
@@ -126,7 +168,7 @@
   throttle / brake <kbd>W</kbd><kbd>S</kbd><br>
   steer <kbd>A</kbd><kbd>D</kbd> &nbsp;handbrake <kbd>Spc</kbd><br>
   drag look · scroll zoom &nbsp;camera <kbd>C</kbd><br>
-  lights <kbd>L</kbd> sound <kbd>M</kbd> reset <kbd>R</kbd>
+  lights <kbd>L</kbd> sound <kbd>M</kbd> reset <kbd>R</kbd> &nbsp;menu <kbd>Esc</kbd>
 </div>
 
 <div id="touch">
@@ -193,7 +235,7 @@ function onRoad(x,z){return Math.abs(x-roadX(z))<ROAD_HALF+0.4;}
 
 /* ---------------- renderer / scene ---------------- */
 const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.5));
 renderer.setSize(innerWidth,innerHeight);
 renderer.shadowMap.enabled=true; /* disabled below if software GPU detected */
 renderer.shadowMap.type=THREE.PCFSoftShadowMap;
@@ -271,9 +313,9 @@ const sun=new THREE.DirectionalLight(0xfff4e0,2.6);
 sun.castShadow=true;
 sun.shadow.mapSize.set(2048,2048);
 sun.shadow.bias=-0.00035;
-sun.shadow.camera.near=2;sun.shadow.camera.far=220;
-sun.shadow.camera.left=-55;sun.shadow.camera.right=55;
-sun.shadow.camera.top=55;sun.shadow.camera.bottom=-55;
+sun.shadow.camera.near=2;sun.shadow.camera.far=140;
+sun.shadow.camera.left=-35;sun.shadow.camera.right=35;
+sun.shadow.camera.top=35;sun.shadow.camera.bottom=-35;
 scene.add(sun);scene.add(sun.target);
 
 /* ---------------- procedural textures (canvas) ---------------- */
@@ -353,11 +395,52 @@ const grassTex=canvasTex(128,(g,s)=>{
 });
 grassTex.wrapS=grassTex.wrapT=THREE.ClampToEdgeWrapping;
 
+/* leaf billboard alpha textures — soft, decisive alpha so alphaTest gives clean cutouts */
+const pineNeedleTex=canvasTex(128,(g,s)=>{
+  g.clearRect(0,0,s,s);
+  const cx=s*0.5,cy=s*0.5;
+  // radial fan of thin tapered needle strokes (a small sprig of evergreen)
+  for(let i=0;i<150;i++){
+    const a=texRand()*Math.PI*2;
+    const r0=texRand()*texRand()*6;            // most start near the centre
+    const len=s*0.18+texRand()*s*0.30;
+    const x0=cx+Math.cos(a)*r0,y0=cy+Math.sin(a)*r0;
+    const x1=cx+Math.cos(a)*(r0+len),y1=cy+Math.sin(a)*(r0+len);
+    const v=70+texRand()*70|0;
+    g.strokeStyle=`rgb(${v*0.55|0},${v+18},${v*0.45|0})`;
+    g.lineWidth=1+texRand()*1.6;g.lineCap='round';
+    g.beginPath();g.moveTo(x0,y0);
+    g.quadraticCurveTo((x0+x1)/2+(texRand()-0.5)*6,(y0+y1)/2+(texRand()-0.5)*6,x1,y1);
+    g.stroke();
+  }
+});
+pineNeedleTex.wrapS=pineNeedleTex.wrapT=THREE.ClampToEdgeWrapping;
+const leafClusterTex=canvasTex(128,(g,s)=>{
+  g.clearRect(0,0,s,s);
+  // overlapping soft leaf silhouettes -> a clump of deciduous foliage
+  for(let i=0;i<22;i++){
+    const cx=s*0.5+(texRand()-0.5)*s*0.55;
+    const cy=s*0.5+(texRand()-0.5)*s*0.55;
+    const w=s*0.10+texRand()*s*0.16,h=w*(1.3+texRand()*0.7);
+    const rot=texRand()*Math.PI;
+    const v=80+texRand()*70|0;
+    g.save();g.translate(cx,cy);g.rotate(rot);
+    g.fillStyle=`rgb(${v*0.5|0},${v+22},${v*0.4|0})`;
+    g.beginPath();
+    g.moveTo(0,-h*0.5);
+    g.quadraticCurveTo(w*0.6,-h*0.1,0,h*0.5);   // leaf-shaped blob
+    g.quadraticCurveTo(-w*0.6,-h*0.1,0,-h*0.5);
+    g.fill();
+    g.restore();
+  }
+});
+leafClusterTex.wrapS=leafClusterTex.wrapT=THREE.ClampToEdgeWrapping;
+
 /* ---------------- materials ---------------- */
 const M={
   terrain:new THREE.MeshStandardMaterial({map:floorTex,roughness:1,metalness:0,vertexColors:true,envMapIntensity:0.15}),
   road:new THREE.MeshStandardMaterial({map:gravelTex,roughness:0.96,metalness:0,envMapIntensity:0.2}),
-  tree:new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.95,metalness:0,flatShading:true,side:THREE.DoubleSide,envMapIntensity:0.18}),
+  tree:new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.92,metalness:0,flatShading:true,side:THREE.DoubleSide,envMapIntensity:0.12}),
   rock:new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.9,metalness:0.05,flatShading:true,envMapIntensity:0.3}),
   grass:new THREE.MeshStandardMaterial({map:grassTex,alphaTest:0.4,side:THREE.DoubleSide,roughness:1,envMapIntensity:0.15}),
   paint:new THREE.MeshStandardMaterial({color:0xd2241a,metalness:0.45,roughness:0.28,envMapIntensity:1.1}),
@@ -378,6 +461,40 @@ const M={
   red:new THREE.MeshStandardMaterial({color:0xa01818,roughness:0.55}),
   white:new THREE.MeshStandardMaterial({color:0xdcdcd2,roughness:0.5}),
 };
+/* alpha-cutout foliage materials — smooth-shaded with a touch of subsurface emissive */
+M.pineLeaf=new THREE.MeshStandardMaterial({map:pineNeedleTex,vertexColors:true,alphaTest:0.45,
+  side:THREE.DoubleSide,roughness:0.9,metalness:0,envMapIntensity:0.12,emissive:0x12300f,emissiveIntensity:0.18});
+M.birchLeaf=new THREE.MeshStandardMaterial({map:leafClusterTex,vertexColors:true,alphaTest:0.4,
+  side:THREE.DoubleSide,roughness:0.85,metalness:0,envMapIntensity:0.12,emissive:0x1c3a10,emissiveIntensity:0.22});
+M.spruceLeaf=new THREE.MeshStandardMaterial({map:pineNeedleTex,vertexColors:true,alphaTest:0.45,
+  side:THREE.DoubleSide,roughness:0.9,metalness:0,envMapIntensity:0.1,emissive:0x0d2410,emissiveIntensity:0.16});
+
+/* ---------------- wind: cheap per-vertex sway injected via onBeforeCompile ---------------- */
+const windUniform={value:0};
+function applyWind(mat,amp,heightScale){
+  mat.onBeforeCompile=(shader)=>{
+    shader.uniforms.uTime=windUniform;
+    shader.vertexShader='uniform float uTime;\n'+shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+      #ifdef USE_INSTANCING
+        vec3 windAnchor=instanceMatrix[3].xyz;
+      #else
+        vec3 windAnchor=vec3(0.0);
+      #endif
+      float windPh=windAnchor.x*0.35+windAnchor.z*0.35;
+      float windH=clamp(position.y*${heightScale.toFixed(3)},0.0,1.0);
+      float windS=sin(uTime*1.3+windPh)+0.4*sin(uTime*2.7+windPh*1.7);
+      transformed.x+=windS*${amp.toFixed(3)}*windH;
+      transformed.z+=cos(uTime*1.1+windPh)*${(amp*0.8).toFixed(3)}*windH;`
+    );
+  };
+  mat.customProgramCacheKey=()=>'wind'+amp;
+}
+applyWind(M.pineLeaf,0.06,0.12);
+applyWind(M.birchLeaf,0.07,0.14);
+applyWind(M.spruceLeaf,0.05,0.12);
+applyWind(M.grass,0.05,1.6);
 
 /* ---------------- geometry merge helper (with vertex colors) ---------------- */
 const _col=new THREE.Color();
@@ -430,44 +547,52 @@ function buildEzGeo(opts,targetH,colorLo,colorHi,leafColor){
   for(let i=0;i<bN;i++){const y=bPa[i*3+1];if(y>maxY)maxY=y;}
   const sc=targetH/maxY;
 
-  const P=[],N=[],U=[],C=[];
+  const bP=[],bNorm=[],bU=[],bC=[];
   const lo=new THREE.Color(colorLo),hi=new THREE.Color(colorHi!==undefined?colorHi:colorLo);
   for(let i=0;i<bN;i++){
     const y=bPa[i*3+1],t01=Math.max(0,Math.min(1,y/maxY));
-    P.push(bPa[i*3]*sc,y*sc,bPa[i*3+2]*sc);
-    N.push(bNa?bNa[i*3]:0,bNa?bNa[i*3+1]:1,bNa?bNa[i*3+2]:0);
-    U.push(0,0);
+    bP.push(bPa[i*3]*sc,y*sc,bPa[i*3+2]*sc);
+    bNorm.push(bNa?bNa[i*3]:0,bNa?bNa[i*3+1]:1,bNa?bNa[i*3+2]:0);
+    bU.push(0,0);
     const jit=0.82+Math.random()*0.36;
-    C.push((lo.r+(hi.r-lo.r)*t01)*jit,(lo.g+(hi.g-lo.g)*t01)*jit,(lo.b+(hi.b-lo.b)*t01)*jit);
+    bC.push((lo.r+(hi.r-lo.r)*t01)*jit,(lo.g+(hi.g-lo.g)*t01)*jit,(lo.b+(hi.b-lo.b)*t01)*jit);
   }
   bSrc.dispose();
+  const branch=new THREE.BufferGeometry();
+  branch.setAttribute('position',new THREE.Float32BufferAttribute(bP,3));
+  branch.setAttribute('normal',new THREE.Float32BufferAttribute(bNorm,3));
+  branch.setAttribute('uv',new THREE.Float32BufferAttribute(bU,2));
+  branch.setAttribute('color',new THREE.Float32BufferAttribute(bC,3));
 
-  /* leaf geometry — double-billboard quads merged with branches, coloured flat */
+  /* leaf geometry — billboard quads kept separate, with REAL UVs for the alpha texture */
+  let leaf=null;
   if(leafColor!==undefined&&t.leavesMesh&&t.leavesMesh.geometry){
     const lSrc=t.leavesMesh.geometry.toNonIndexed();
     const lPa=lSrc.attributes.position.array,lNa=lSrc.attributes.normal?lSrc.attributes.normal.array:null;
+    const lUa=lSrc.attributes.uv?lSrc.attributes.uv.array:null;
     const lN=lPa.length/3;
+    const lP=[],lNorm=[],lU=[],lC=[];
     const lc=new THREE.Color(leafColor);
     for(let i=0;i<lN;i++){
-      P.push(lPa[i*3]*sc,lPa[i*3+1]*sc,lPa[i*3+2]*sc);
-      N.push(lNa?lNa[i*3]:0,lNa?lNa[i*3+1]:1,lNa?lNa[i*3+2]:0);
-      U.push(0,0);
+      lP.push(lPa[i*3]*sc,lPa[i*3+1]*sc,lPa[i*3+2]*sc);
+      lNorm.push(lNa?lNa[i*3]:0,lNa?lNa[i*3+1]:1,lNa?lNa[i*3+2]:0);
+      if(lUa){lU.push(lUa[i*2],lUa[i*2+1]);}
+      else{const q=i%6;lU.push((q===1||q===2||q===4)?1:0,(q===2||q===4||q===5)?1:0);} // synth quad UVs
       const jit=0.75+Math.random()*0.5;
-      C.push(lc.r*jit,lc.g*jit,lc.b*jit);
+      lC.push(lc.r*jit,lc.g*jit,lc.b*jit);
     }
     lSrc.dispose();
+    leaf=new THREE.BufferGeometry();
+    leaf.setAttribute('position',new THREE.Float32BufferAttribute(lP,3));
+    leaf.setAttribute('normal',new THREE.Float32BufferAttribute(lNorm,3));
+    leaf.setAttribute('uv',new THREE.Float32BufferAttribute(lU,2));
+    leaf.setAttribute('color',new THREE.Float32BufferAttribute(lC,3));
   }
-
-  const geo=new THREE.BufferGeometry();
-  geo.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
-  geo.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));
-  geo.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));
-  geo.setAttribute('color',new THREE.Float32BufferAttribute(C,3));
-  return geo;
+  return{branch,leaf};
 }
 
 /* Pine / evergreen — based on ez-tree pine_large preset, low-poly for instancing */
-const pineGeo=buildEzGeo({
+const pineTpl=buildEzGeo({
   seed:44166,type:'evergreen',
   bark:{flatShading:true,textured:false},
   branch:{
@@ -485,16 +610,16 @@ const pineGeo=buildEzGeo({
     twist:{0:0,1:0,2:0,3:0}
   },
   leaves:{type:'pine',billboard:'double',count:5,size:2.6,sizeVariance:0.2,alphaTest:0,tint:16777215}
-},9.0,0x7d6248,0x4a8840,0x3a6828)||mergeParts([
+},9.0,0x7d6248,0x5c4a38,0x3a6828)||{branch:mergeParts([
   {geo:new THREE.CylinderGeometry(0.10,0.22,3.4,7),pos:[0,1.7,0],col:0x7d6248,jit:0.35},
   {geo:new THREE.ConeGeometry(2.15,2.7,8),pos:[0,3.4,0],col:0x4d7a40,jit:0.30},
   {geo:new THREE.ConeGeometry(1.65,2.4,8),pos:[0,4.8,0],col:0x568546,jit:0.30},
   {geo:new THREE.ConeGeometry(1.15,2.1,7),pos:[0,6.1,0],col:0x60924e,jit:0.30},
   {geo:new THREE.ConeGeometry(0.62,1.6,6),pos:[0,7.3,0],col:0x6aa057,jit:0.30},
-]);
+]),leaf:null};
 
 /* Aspen / deciduous — based on ez-tree aspen_large preset, low-poly for instancing */
-const birchGeo=buildEzGeo({
+const birchTpl=buildEzGeo({
   seed:30631,type:'deciduous',
   bark:{flatShading:true,textured:false},
   branch:{
@@ -512,12 +637,37 @@ const birchGeo=buildEzGeo({
     twist:{0:0,1:0,2:0,3:0}
   },
   leaves:{type:'aspen',billboard:'double',count:6,size:3.0,sizeVariance:0.5,alphaTest:0,tint:16777215}
-},8.5,0xc8c4b4,0x7a9438,0x6a9430)||mergeParts([
+},8.5,0xc8c4b4,0xb8b0a0,0x6a9430)||{branch:mergeParts([
   {geo:new THREE.CylinderGeometry(0.09,0.16,3.6,6),pos:[0,1.8,0],col:0xd8d4c6,jit:0.45},
   {geo:new THREE.IcosahedronGeometry(1.5,1),pos:[0,4.3,0],scl:[1,1.15,1],col:0x8fb055,jit:0.35},
   {geo:new THREE.IcosahedronGeometry(1.0,1),pos:[0.9,3.6,0.3],col:0x9cba5e,jit:0.35},
   {geo:new THREE.IcosahedronGeometry(0.9,1),pos:[-0.8,3.8,-0.4],col:0x86a64e,jit:0.35},
-]);
+]),leaf:null};
+/* Spruce — a taller, darker evergreen for forest variety */
+const spruceTpl=buildEzGeo({
+  seed:8821,type:'evergreen',
+  bark:{flatShading:true,textured:false},
+  branch:{
+    levels:1,
+    angle:{1:118,2:16,3:60},
+    children:{0:12,1:2,2:0},
+    force:{direction:{x:0,y:1,z:0},strength:0.006},
+    gnarliness:{0:0.04,1:0.06,2:0,3:0},
+    length:{0:72,1:30,2:24,3:1},
+    radius:{0:1.15,1:0.32,2:0.6,3:0.6},
+    sections:{0:5,1:4,2:3,3:3},
+    segments:{0:5,1:4,2:3,3:3},
+    start:{1:0.22,2:0.14,3:0.3},
+    taper:{0:0.72,1:0.7,2:0.7,3:0.7},
+    twist:{0:0,1:0,2:0,3:0}
+  },
+  leaves:{type:'pine',billboard:'double',count:6,size:2.4,sizeVariance:0.25,alphaTest:0,tint:16777215}
+},11.0,0x6a5238,0x504030,0x2c5226)||{branch:mergeParts([
+  {geo:new THREE.CylinderGeometry(0.09,0.20,3.8,7),pos:[0,1.9,0],col:0x6a5238,jit:0.35},
+  {geo:new THREE.ConeGeometry(2.0,3.0,8),pos:[0,3.8,0],col:0x35602e,jit:0.30},
+  {geo:new THREE.ConeGeometry(1.45,2.6,8),pos:[0,5.4,0],col:0x3c6a33,jit:0.30},
+  {geo:new THREE.ConeGeometry(0.9,2.2,7),pos:[0,6.9,0],col:0x437437,jit:0.30},
+]),leaf:null};
 const bushGeo=mergeParts([
   {geo:new THREE.IcosahedronGeometry(0.75,1),pos:[0,0.42,0],scl:[1,0.62,1],col:0x618348,jit:0.4},
   {geo:new THREE.IcosahedronGeometry(0.5,1),pos:[0.5,0.3,0.2],scl:[1,0.6,1],col:0x6e924c,jit:0.4},
@@ -536,16 +686,143 @@ const grassGeo=mergeParts([
   {geo:new THREE.PlaneGeometry(1.1,0.85),pos:[0,0.42,0],rot:[0,Math.PI/2,0],col:0xffffff,jit:0.3},
 ]);
 
+/* ---------------- photoreal maple (hero tree: OBJ model + impostor LOD) ----------------
+   A scanned-style maple (~45k tris, real bark/leaf textures) is far too heavy to
+   instance like the procedural trees, so it renders at full detail only in the
+   chunks around the jeep; farther chunks draw a billboard impostor of the same
+   tree (4 tris) baked once at load into a render target. Assets stream in async
+   like the HD jeep — the procedural forest works without them. */
+const MAPLE={ready:false,perChunk:8,fullRange:1,tpl:null,impGeo:null,barkMat:null,leafMat:null,impMat:null};
+function parseOBJ(text){
+  const vp=[],vt=[],vn=[],P=[],N=[],U=[];let hasN=false;
+  const lines=text.split('\n');
+  for(let li=0;li<lines.length;li++){
+    const L=lines[li],c0=L.charCodeAt(0);
+    if(c0===118){ // 'v'
+      const w=L.split(/\s+/),c1=L.charCodeAt(1);
+      if(c1===32)vp.push(+w[1],+w[2],+w[3]);
+      else if(c1===116)vt.push(+w[1],+w[2]);
+      else if(c1===110)vn.push(+w[1],+w[2],+w[3]);
+    }else if(c0===102){ // 'f' — fan-triangulate polygons
+      const w=L.trim().split(/\s+/),idx=[];
+      for(let i=1;i<w.length;i++){
+        const a=w[i].split('/');
+        idx.push([a[0]|0,(a[1]||0)|0,(a[2]||0)|0]);
+      }
+      for(let i=2;i<idx.length;i++)for(const k of[0,i-1,i]){
+        const f=idx[k];
+        const p=(f[0]>0?f[0]-1:vp.length/3+f[0])*3;
+        P.push(vp[p],vp[p+1],vp[p+2]);
+        if(f[1]){const t=(f[1]-1)*2;U.push(vt[t],vt[t+1]);}else U.push(0,0);
+        if(f[2]){hasN=true;const n=(f[2]-1)*3;N.push(vn[n],vn[n+1],vn[n+2]);}else N.push(0,1,0);
+      }
+    }
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));
+  if(hasN)g.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));
+  else g.computeVertexNormals();
+  return g;
+}
+function loadTexAsync(url,srgb){
+  return new Promise((res,rej)=>{new THREE.TextureLoader().load(url,t=>{
+    if(srgb)t.encoding=THREE.sRGBEncoding;
+    t.anisotropy=renderer.capabilities.getMaxAnisotropy();
+    res(t);
+  },undefined,rej);});
+}
+function bakeMapleImpostor(){
+  const t=MAPLE.tpl;
+  t.branch.computeBoundingBox();t.leaf.computeBoundingBox();
+  const bb=t.branch.boundingBox.clone().union(t.leaf.boundingBox);
+  const w=Math.max(bb.max.x-bb.min.x,bb.max.z-bb.min.z),pad=0.4;
+  const sc=new THREE.Scene();
+  sc.add(new THREE.AmbientLight(0xffffff,0.85)); // ~albedo bake; scene lights re-light the impostor at draw time
+  const dl=new THREE.DirectionalLight(0xffffff,0.35);dl.position.set(0.5,1,0.9);sc.add(dl);
+  sc.add(new THREE.Mesh(t.branch,MAPLE.barkMat));
+  sc.add(new THREE.Mesh(t.leaf,MAPLE.leafMat));
+  const cam=new THREE.OrthographicCamera(bb.min.x-pad,bb.max.x+pad,bb.max.y+pad,bb.min.y-pad,0.1,w*4);
+  cam.position.set(0,0,w*2);cam.lookAt(0,0,0);
+  const rt=new THREE.WebGLRenderTarget(512,512,{generateMipmaps:true,minFilter:THREE.LinearMipmapLinearFilter});
+  rt.texture.encoding=THREE.sRGBEncoding;
+  rt.texture.anisotropy=renderer.capabilities.getMaxAnisotropy();
+  const oldTM=renderer.toneMapping,oldCol=renderer.getClearColor(new THREE.Color()),oldA=renderer.getClearAlpha();
+  renderer.toneMapping=THREE.NoToneMapping; // scene tone mapping is applied when the impostor itself renders
+  renderer.setRenderTarget(rt);
+  renderer.setClearColor(0x3d5a2a,0);      // green RGB under zero alpha so mips don't ring dark
+  renderer.clear();
+  renderer.render(sc,cam);
+  renderer.setRenderTarget(null);
+  renderer.setClearColor(oldCol,oldA);renderer.toneMapping=oldTM;
+  MAPLE.barkMat.needsUpdate=true;MAPLE.leafMat.needsUpdate=true;
+  /* crossed billboard quads matching the baked view exactly (trunk stays aligned on LOD swap) */
+  const x0=bb.min.x-pad,x1=bb.max.x+pad,y0=bb.min.y-pad,y1=bb.max.y+pad;
+  const P=[],N=[],U=[];
+  const quad=(ax,az,bx,bz,nx,nz)=>{
+    P.push(ax,y0,az, bx,y0,bz, bx,y1,bz,  ax,y0,az, bx,y1,bz, ax,y1,az);
+    for(let i=0;i<6;i++)N.push(nx,0,nz);
+    U.push(0,0, 1,0, 1,1, 0,0, 1,1, 0,1);
+  };
+  quad(x0,0,x1,0,0,1);
+  quad(0,x0,0,x1,1,0);
+  MAPLE.impGeo=new THREE.BufferGeometry();
+  MAPLE.impGeo.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
+  MAPLE.impGeo.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));
+  MAPLE.impGeo.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));
+  MAPLE.impMat=new THREE.MeshStandardMaterial({map:rt.texture,alphaTest:0.35,side:THREE.DoubleSide,roughness:1,metalness:0,envMapIntensity:0.08});
+}
+function loadMaple(){
+  if(SOFT_GPU&&!/[?&]hd=1/.test(location.search))return; // software GPU: keep the light forest
+  Promise.all([
+    fetch('assets/maple/MapleTreeStem.obj').then(r=>{if(!r.ok)throw 0;return r.text();}),
+    fetch('assets/maple/MapleTreeLeaves.obj').then(r=>{if(!r.ok)throw 0;return r.text();}),
+    loadTexAsync('assets/maple/maple_bark.png',true),
+    loadTexAsync('assets/maple/maple_leaf.png',true),
+    loadTexAsync('assets/maple/maple_leaf_Mask.png',false),
+  ]).then(([stemTxt,leafTxt,barkTex,leafTex,maskTex])=>{
+    barkTex.wrapS=barkTex.wrapT=THREE.RepeatWrapping; // stem UVs tile far outside 0..1
+    const stem=parseOBJ(stemTxt),leaf=parseOBJ(leafTxt);
+    stem.computeBoundingBox();
+    const s=13.5/Math.max(stem.boundingBox.max.y,0.001); // hero maple ~13.5 m tall
+    stem.scale(s,s,s);leaf.scale(s,s,s);
+    MAPLE.barkMat=new THREE.MeshStandardMaterial({map:barkTex,roughness:0.95,metalness:0,envMapIntensity:0.12});
+    MAPLE.leafMat=new THREE.MeshStandardMaterial({map:leafTex,alphaMap:maskTex,alphaTest:0.4,side:THREE.DoubleSide,
+      roughness:0.85,metalness:0,envMapIntensity:0.12,emissive:0x16300d,emissiveIntensity:0.16});
+    applyWind(MAPLE.leafMat,0.05,0.08);
+    MAPLE.tpl={branch:stem,leaf};
+    bakeMapleImpostor();
+    if(compatOn){
+      selfLit(MAPLE.barkMat,0xffffff,barkTex,0.55);
+      selfLit(MAPLE.leafMat,0xffffff,leafTex,0.55);
+      selfLit(MAPLE.impMat,0xffffff,MAPLE.impMat.map,0.6);
+    }
+    MAPLE.ready=true;
+    /* rebuild loaded chunks once so maples appear everywhere immediately */
+    [...chunks.keys()].forEach(k=>disposeChunk(k));
+    ensureChunks(typeof car!=='undefined'?car.z:0);
+  }).catch(()=>{/* offline or file:// — procedural forest stays */});
+}
+
 /* ---------------- compat self-lit fallback (driver-proof lighting) ---------------- */
 let compatOn=false,fixStage=0,nextTest=40;const compatMats=[];
+function selfLit(m,c,map,k){m.emissive=new THREE.Color(c);if(map)m.emissiveMap=map;
+  m.emissiveIntensity=k||0.62;m.needsUpdate=true;compatMats.push([m,k||0.62]);}
 function enableCompat(reason){
   if(compatOn)return;compatOn=true;
-  const lit=(m,c,map,k)=>{m.emissive=new THREE.Color(c);if(map)m.emissiveMap=map;
-    m.emissiveIntensity=k||0.62;m.needsUpdate=true;compatMats.push([m,k||0.62]);};
+  const lit=selfLit;
   lit(M.terrain,0xffffff,floorTex);
   lit(M.road,0xffffff,gravelTex);
   lit(M.grass,0xffffff,grassTex);
-  lit(M.tree,0x5b7d45);
+  lit(M.tree,0x4a3a2a); // bark-only mesh now — brown self-lit, not green
+  lit(M.pineLeaf,0x4a7a40);
+  lit(M.spruceLeaf,0x3e6e38);
+  lit(M.birchLeaf,0x6a9430);
+  if(MAPLE.barkMat){
+    lit(MAPLE.barkMat,0xffffff,MAPLE.barkMat.map,0.55);
+    lit(MAPLE.leafMat,0xffffff,MAPLE.leafMat.map,0.55);
+    if(MAPLE.impMat)lit(MAPLE.impMat,0xffffff,MAPLE.impMat.map,0.6);
+  }
   lit(M.rock,0x807f77);
   lit(M.paint,0xd2241a,null,0.7);
   lit(M.trim,0x303030);
@@ -607,7 +884,8 @@ function setWeather(w){
 }
 
 /* ---------------- chunked world generation ---------------- */
-const CHUNK=60, AHEAD=5, BEHIND=3;
+const CHUNK=60, BEHIND=3;
+let AHEAD=5; // forward render distance in chunks — adjustable via the settings menu
 const chunks=new Map();
 const tmpM=new THREE.Matrix4(),tmpQ=new THREE.Quaternion(),tmpE=new THREE.Euler(),
       tmpV=new THREE.Vector3(),tmpS=new THREE.Vector3();
@@ -683,7 +961,44 @@ function scatter(geo,mat,count,rnd,ci,place,shadow){
   mesh.frustumCulled=false;
   return mesh;
 }
-const _tint=new THREE.Color();
+/* like scatter, but writes ONE placement pass into several aligned InstancedMeshes
+   (e.g. branches + alpha-cutout leaves). Returns the array of meshes. */
+function scatter2(geos,mats,count,rnd,ci,place,shadow){
+  const meshes=[];
+  for(let k=0;k<geos.length;k++){
+    if(!geos[k])continue;
+    const m=new THREE.InstancedMesh(geos[k],mats[k],count);
+    // alpha-cutout leaves need a matching depth material so their shadows are dappled too
+    if(mats[k].alphaTest>0&&(mats[k].map||mats[k].alphaMap)){
+      m.customDepthMaterial=new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking,map:mats[k].map,alphaMap:mats[k].alphaMap,alphaTest:mats[k].alphaTest});
+    }
+    meshes.push(m);
+  }
+  let n=0;const z0=ci*CHUNK;
+  for(let i=0;i<count;i++){
+    const p=place(rnd,z0);
+    if(!p)continue;
+    tmpQ.setFromEuler(tmpE.set(p.rx||0,p.ry||0,p.rz||0));
+    tmpM.compose(tmpV.set(p.x,p.y,p.z),tmpQ,tmpS.set(p.s,p.sy||p.s,p.s));
+    // mesh[0] is the bark/branch mesh — give it p.cb (bark tint) so the green
+    // foliage tint p.c doesn't bleed onto the trunk. Falls back to p.c.
+    for(let mi=0;mi<meshes.length;mi++){
+      meshes[mi].setMatrixAt(n,tmpM);
+      const col=(mi===0&&p.cb)?p.cb:p.c;
+      if(col)meshes[mi].setColorAt(n,col);
+    }
+    n++;p.i=n-1;
+  }
+  for(const m of meshes){
+    m.count=n;
+    m.instanceMatrix.needsUpdate=true;
+    if(m.instanceColor)m.instanceColor.needsUpdate=true;
+    if(shadow)m.castShadow=true;
+    m.frustumCulled=false;
+  }
+  return meshes;
+}
+const _tint=new THREE.Color(),_bark=new THREE.Color();
 function makeChunk(ci){
   const group=new THREE.Group();
   const rnd=mulberry32((ci*2654435761)^0x9e3779b9);
@@ -691,20 +1006,43 @@ function makeChunk(ci){
   group.add(buildTerrain(ci));
   group.add(buildRoad(ci));
 
-  group.add(scatter(pineGeo,M.tree,80,rnd,ci,(r,z0)=>{
+  group.add(...scatter2([pineTpl.branch,pineTpl.leaf],[M.tree,M.pineLeaf],92,rnd,ci,(r,z0)=>{
     const z=z0+r()*CHUNK,x=roadX(z)+(r()<0.5?-1:1)*(8+r()*r()*105);
     const s=0.65+r()*0.95;
     colliders.push([x,z,0.30*s+0.32]);
-    _tint.setHSL(0.28+r()*0.06,0.35+r()*0.2,0.42+r()*0.22);
-    return{x,y:groundHeight(x,z)-0.25,z,s,sy:s*(0.85+r()*0.5),ry:r()*6.28,c:_tint};
+    _tint.setHSL(0.27+r()*0.08,0.33+r()*0.24,0.40+r()*0.26);
+    _bark.setRGB(0.72+r()*0.26,0.66+r()*0.24,0.56+r()*0.20); // warm brown, brightness variety only
+    return{x,y:groundHeight(x,z)-0.25,z,s,sy:s*(0.85+r()*0.5),ry:r()*6.28,c:_tint,cb:_bark};
   },true));
-  group.add(scatter(birchGeo,M.tree,24,rnd,ci,(r,z0)=>{
+  group.add(...scatter2([spruceTpl.branch,spruceTpl.leaf],[M.tree,M.spruceLeaf],26,rnd,ci,(r,z0)=>{
+    const z=z0+r()*CHUNK,x=roadX(z)+(r()<0.5?-1:1)*(11+r()*r()*100);
+    const s=0.6+r()*0.85;
+    colliders.push([x,z,0.28*s+0.3]);
+    _tint.setHSL(0.30+r()*0.05,0.42+r()*0.18,0.34+r()*0.18);
+    _bark.setRGB(0.60+r()*0.28,0.54+r()*0.24,0.46+r()*0.18); // dark brown
+    return{x,y:groundHeight(x,z)-0.28,z,s,sy:s*(0.9+r()*0.55),ry:r()*6.28,c:_tint,cb:_bark};
+  },true));
+  group.add(...scatter2([birchTpl.branch,birchTpl.leaf],[M.tree,M.birchLeaf],26,rnd,ci,(r,z0)=>{
     const z=z0+r()*CHUNK,x=roadX(z)+(r()<0.5?-1:1)*(9+r()*r()*95);
     const s=0.6+r()*0.8;
     colliders.push([x,z,0.22*s+0.28]);
-    _tint.setHSL(0.21+r()*0.07,0.4,0.5+r()*0.25);
-    return{x,y:groundHeight(x,z)-0.2,z,s,sy:s*(0.9+r()*0.4),ry:r()*6.28,c:_tint};
+    _tint.setHSL(0.19+r()*0.10,0.38+r()*0.12,0.48+r()*0.28);
+    _bark.setRGB(0.84+r()*0.16,0.83+r()*0.15,0.78+r()*0.15); // pale birch bark, near-white
+    return{x,y:groundHeight(x,z)-0.2,z,s,sy:s*(0.9+r()*0.4),ry:r()*6.28,c:_tint,cb:_bark};
   },true));
+  let mapleLOD=null;
+  if(MAPLE.ready){
+    const ms=scatter2([MAPLE.tpl.branch,MAPLE.tpl.leaf,MAPLE.impGeo],[MAPLE.barkMat,MAPLE.leafMat,MAPLE.impMat],MAPLE.perChunk,rnd,ci,(r,z0)=>{
+      const z=z0+r()*CHUNK,x=roadX(z)+(r()<0.5?-1:1)*(10+r()*r()*60);
+      const s=0.75+r()*0.55;
+      colliders.push([x,z,0.5*s+0.25]);
+      _tint.setRGB(0.84+r()*0.28,0.88+r()*0.24,0.80+r()*0.26); // near-white tint: subtle hue/brightness variety per tree
+      return{x,y:groundHeight(x,z)-0.25,z,s,sy:s*(0.92+r()*0.22),ry:r()*6.28,c:_tint};
+    },true);
+    const imp=ms[ms.length-1];imp.castShadow=false;
+    mapleLOD={full:ms.slice(0,-1),imp:[imp]};
+    group.add(...ms);
+  }
   group.add(scatter(bushGeo,M.tree,55,rnd,ci,(r,z0)=>{
     const z=z0+r()*CHUNK,x=roadX(z)+(r()<0.5?-1:1)*(5.6+r()*r()*70);
     _tint.setHSL(0.26+r()*0.08,0.4,0.4+r()*0.25);
@@ -726,20 +1064,30 @@ function makeChunk(ci){
   },false));
 
   scene.add(group);
-  chunks.set(ci,{group,colliders});
+  chunks.set(ci,{group,colliders,lod:mapleLOD});
 }
 function disposeChunk(ci){
   const c=chunks.get(ci);if(!c)return;
   scene.remove(c.group);
   c.group.traverse(o=>{
     if(o.isMesh&&!o.isInstancedMesh)o.geometry.dispose();
+    else if(o.isInstancedMesh&&o.dispose)o.dispose(); // frees per-instance GPU buffers (template geometry is shared)
   });
   chunks.delete(ci);
 }
 function ensureChunks(z){
   const ci=Math.floor(z/CHUNK);
   for(let i=ci-BEHIND;i<=ci+AHEAD;i++)if(!chunks.has(i))makeChunk(i);
-  chunks.forEach((v,k)=>{if(k<ci-BEHIND-1||k>ci+AHEAD+1)disposeChunk(k);});
+  chunks.forEach((v,k)=>{
+    if(k<ci-BEHIND-1||k>ci+AHEAD+1){disposeChunk(k);return;}
+    const shadowNear=Math.abs(k-ci)<=1;
+    v.group.traverse(o=>{if(o.isInstancedMesh)o.castShadow=shadowNear;});
+    if(v.lod){
+      const near=Math.abs(k-ci)<=MAPLE.fullRange;
+      for(const m of v.lod.full)m.visible=near;
+      for(const m of v.lod.imp){m.visible=!near;m.castShadow=false;}
+    }
+  });
 }
 
 /* ---------------- THE JEEP ---------------- */
@@ -1080,6 +1428,7 @@ function loadHDJeep(){
   },undefined,()=>{/* offline or file:// — procedural jeep stays */});
 }
 loadHDJeep();
+loadMaple();
 
 /* ---------------- dust particles ---------------- */
 const NP=220;
@@ -1213,6 +1562,7 @@ addEventListener('keydown',e=>{
   if(e.code==='KeyB'){if(EXPO>=2.2&&!compatOn){enableCompat('manual')}else if(EXPO>=2.2){EXPO=1.45}else{EXPO+=0.375}renderer.toneMappingExposure=EXPO;}
   if(e.code==='KeyM'){snd.muted=!snd.muted;pSnd.classList.toggle('on',!snd.muted&&snd.ready);}
   if(e.code==='KeyR')resetCar();
+  if(e.code==='Escape')toggleSettings();
 });
 addEventListener('keyup',e=>setKey(e.code,0));
 function toggleLights(){
@@ -1250,6 +1600,7 @@ function panBy(dx,dy){
 }
 cv.addEventListener('pointerdown',e=>{
   if(startEl.style.display!=='none')return;     // ignore until the game starts
+  if(menuOpen)return;                            // ignore while the settings menu is open
   drags.set(e.pointerId,{x:e.clientX,y:e.clientY});
   try{cv.setPointerCapture(e.pointerId);}catch(err){}
 });
@@ -1274,7 +1625,8 @@ cv.addEventListener('wheel',e=>{
 },{passive:false});
 
 const startEl=document.getElementById('start');
-function begin(){
+function begin(e){
+  if(e&&e.code==='Escape')return;            // Esc opens the menu, doesn't start the game
   if(startEl.style.display==='none')return;
   startEl.style.display='none';
   initAudio();
@@ -1282,6 +1634,25 @@ function begin(){
 }
 startEl.addEventListener('pointerdown',begin);
 addEventListener('keydown',begin,{once:false});
+
+/* ---------------- settings menu (Esc) ---------------- */
+const settingsEl=document.getElementById('settings'),rdSlider=document.getElementById('rdSlider'),
+      rdVal=document.getElementById('rdVal');
+let menuOpen=false;
+function toggleSettings(open){
+  if(startEl.style.display!=='none')return;   // not until the game has started
+  menuOpen=(open===undefined)?!menuOpen:open;
+  settingsEl.classList.toggle('open',menuOpen);
+}
+function applyRenderDistance(n){
+  AHEAD=n;
+  rdVal.textContent=(n*CHUNK)+' m';
+  rdSlider.value=n;
+  if(chunks.size>0)ensureChunks(car.z); // load/unload immediately (skipped during init, before the world exists)
+}
+rdSlider.addEventListener('input',()=>applyRenderDistance(parseInt(rdSlider.value)));
+document.getElementById('rdClose').addEventListener('click',()=>toggleSettings(false));
+applyRenderDistance(AHEAD); // sync the label with the default
 
 /* ---------------- car physics state ---------------- */
 const car={
@@ -1488,8 +1859,9 @@ function updateCamera(dt){
 
 /* ---------------- HUD ---------------- */
 const elSpeed=document.getElementById('speed'),elArc=document.getElementById('arc'),
-      elOdo=document.getElementById('odo'),elGear=document.getElementById('gear');
-let odo=0,hudT=0;
+      elOdo=document.getElementById('odo'),elGear=document.getElementById('gear'),
+      elFps=document.getElementById('fps');
+let odo=0,hudT=0,fpsFilt=60,fpsFrames=0,fpsWin=0;
 function updateHUD(dt){
   hudT+=dt;if(hudT<0.1)return;hudT=0;
   const kmh=Math.round(Math.hypot(car.vx,car.vz)*3.6);
@@ -1498,6 +1870,41 @@ function updateHUD(dt){
   elOdo.textContent=odo.toFixed(2)+' km';
   const label=car.vF<-0.4?'R':(car.vF<0.4?'N':String(car.gear+1));
   elGear.firstChild.textContent=label;
+  const ri=renderer.info.render;
+  elFps.textContent=Math.round(fpsFilt)+' FPS · '+ri.calls+'dc · '+(ri.triangles/1000|0)+'k tri'+(aqLevel?' · Q'+aqLevel:'');
+}
+
+/* ---------------- adaptive quality ---------------- */
+let aqLevel=0,aqTimer=0;
+const aqNativePR=Math.min(window.devicePixelRatio,1.5);
+function adaptiveQuality(dt){
+  aqTimer+=dt;if(aqTimer<2)return;aqTimer=0;
+  if(compatOn)return;
+  if(fpsFilt<35&&aqLevel<3){
+    aqLevel++;
+    if(aqLevel===1){
+      renderer.setPixelRatio(Math.min(aqNativePR,1));
+      toast('Auto quality: pixel ratio reduced');
+    }else if(aqLevel===2){
+      sun.shadow.mapSize.set(1024,1024);sun.shadow.map&&(sun.shadow.map.dispose(),sun.shadow.map=null);
+      toast('Auto quality: shadow resolution reduced');
+    }else if(aqLevel===3){
+      sun.castShadow=false;renderer.shadowMap.enabled=false;
+      toast('Auto quality: shadows disabled');
+    }
+    elFps.style.color='var(--amber)';
+  }else if(fpsFilt>55&&aqLevel>0){
+    aqLevel--;
+    if(aqLevel===2){
+      sun.castShadow=true;renderer.shadowMap.enabled=true;renderer.shadowMap.needsUpdate=true;
+    }else if(aqLevel===1){
+      sun.shadow.mapSize.set(SOFT_GPU?512:2048,SOFT_GPU?512:2048);
+      sun.shadow.map&&(sun.shadow.map.dispose(),sun.shadow.map=null);
+    }else if(aqLevel===0){
+      renderer.setPixelRatio(aqNativePR);
+      elFps.style.color='';
+    }
+  }
 }
 
 /* ---------------- main loop ---------------- */
@@ -1507,8 +1914,18 @@ car.y=groundHeight(car.x,car.z);
 let frame=0;
 function loop(now){
   requestAnimationFrame(loop);
-  let dt=Math.min((now-last)/1000,1/25);last=now;
+  const rawDt=now-last;
+  // FPS = real frames counted over a ~0.5s window (true average, not a
+  // hitch-biased rate EMA). Skip tab-out gaps so they don't corrupt it.
+  if(rawDt>1000){fpsFrames=0;fpsWin=0;}
+  else if(rawDt>0){
+    fpsFrames++;fpsWin+=rawDt;
+    if(fpsWin>=500){fpsFilt=fpsFrames*1000/fpsWin;fpsFrames=0;fpsWin=0;}
+  }
+  let dt=Math.min(rawDt/1000,1/25);last=now;
   if(dt<=0)return;
+  windUniform.value=now*0.001;
+  adaptiveQuality(dt);
   physics(dt);
   odo+=Math.hypot(car.vx,car.vz)*dt/1000;
   if((frame++&3)===0)ensureChunks(car.z);
@@ -1551,6 +1968,7 @@ addEventListener('resize',()=>{
   renderer.setSize(innerWidth,innerHeight);
 });
 document.addEventListener('visibilitychange',()=>{last=performance.now();});
+window.__dbg={MAPLE,chunks,renderer,car,enableCompat,applyRenderDistance,get aqLevel(){return aqLevel;},get AHEAD(){return AHEAD;}}; // console/testing handle into the IIFE
 })();
 </script>
 </body>
