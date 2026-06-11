@@ -99,7 +99,8 @@
     <p style="color:var(--olive)">Now with a 6-speed auto gearbox &amp; a 187 km/h top end.</p>
     <p style="font-size:10px;color:var(--dim)">Jeep model: "2020 Jeep Gladiator" by Ddiaz Design (Sketchfab) · CC-BY-NC-SA-4.0</p>
     <p style="color:var(--ink)">Drive with <b>W A S D</b> or arrow keys · <b>Space</b> handbrake<br>
-    <b>C</b> camera · <b>L</b> headlights · <b>B</b> brightness · <b>N</b> weather · <b>M</b> sound · <b>R</b> back to road</p>
+    <b>Drag</b> to look around · <b>Scroll / pinch</b> to zoom<br>
+    <b>C</b> camera (chase / hood / 360° orbit) · <b>L</b> headlights · <b>B</b> brightness · <b>N</b> weather · <b>M</b> sound · <b>R</b> back to road</p>
     <span class="go">Tap to start engine</span>
   </div>
 </div>
@@ -124,7 +125,8 @@
 <div id="hints" class="panel">
   throttle / brake <kbd>W</kbd><kbd>S</kbd><br>
   steer <kbd>A</kbd><kbd>D</kbd> &nbsp;handbrake <kbd>Spc</kbd><br>
-  camera <kbd>C</kbd> lights <kbd>L</kbd> sound <kbd>M</kbd> reset <kbd>R</kbd>
+  drag look · scroll zoom &nbsp;camera <kbd>C</kbd><br>
+  lights <kbd>L</kbd> sound <kbd>M</kbd> reset <kbd>R</kbd>
 </div>
 
 <div id="touch">
@@ -1184,8 +1186,14 @@ function updateAudio(rpm,throttle,road,sp,gear){
 /* ---------------- input ---------------- */
 const input={fwd:0,back:0,left:0,right:0,hand:0};
 let camMode=0,lightsOn=false,helpOn=true;
+/* pannable camera: drag to look around, wheel / pinch to zoom.
+   CHASE — look-around gently recenters behind the jeep.
+   ORBIT — holds your angle for a free 360° walk-around. */
+const CAM_NAMES=['CHASE','HOOD','ORBIT'];
+let panYaw=0,panPitch=0,orbitDist=7.5;
 const pCam=document.getElementById('pCam'),pLight=document.getElementById('pLight'),
       pSnd=document.getElementById('pSnd');
+function cycleCam(){camMode=(camMode+1)%3;pCam.textContent=CAM_NAMES[camMode];}
 function setKey(code,v){
   switch(code){
     case'KeyW':case'ArrowUp':input.fwd=v;break;
@@ -1199,7 +1207,7 @@ addEventListener('keydown',e=>{
   if(e.code==='Space')e.preventDefault();
   setKey(e.code,1);
   if(e.repeat)return;
-  if(e.code==='KeyC'){camMode=(camMode+1)%2;pCam.textContent=camMode?'HOOD':'CHASE';}
+  if(e.code==='KeyC'){cycleCam();}
   if(e.code==='KeyL'){toggleLights();}
   if(e.code==='KeyN'){wantStorm=false;setWeather(weather==='storm'?'day':'storm');}
   if(e.code==='KeyB'){if(EXPO>=2.2&&!compatOn){enableCompat('manual')}else if(EXPO>=2.2){EXPO=1.45}else{EXPO+=0.375}renderer.toneMappingExposure=EXPO;}
@@ -1213,7 +1221,7 @@ function toggleLights(){
   M.lens.emissiveIntensity=lightsOn?2.4:0.12;
   pLight.classList.toggle('on',lightsOn);
 }
-pCam.onclick=()=>{camMode=(camMode+1)%2;pCam.textContent=camMode?'HOOD':'CHASE';};
+pCam.onclick=cycleCam;
 pLight.onclick=toggleLights;
 pSnd.onclick=()=>{snd.muted=!snd.muted;pSnd.classList.toggle('on',!snd.muted&&snd.ready);};
 /* touch */
@@ -1226,6 +1234,44 @@ function bindTouch(id,key){
   el.addEventListener('pointerleave',()=>input[key]=0);
 }
 bindTouch('tL','left');bindTouch('tR','right');bindTouch('tG','fwd');bindTouch('tB','back');
+
+/* ---------------- pan / look-around camera ---------------- */
+/* drag anywhere on the scene to swing the view; wheel or pinch to zoom.
+   The corner driving buttons capture their own pointers, so they never pan. */
+const cv=renderer.domElement;
+const drags=new Map();          // active dragging pointers
+let pinchPrev=0;
+function panBy(dx,dy){
+  panYaw  -=dx*0.006;
+  panPitch=clamp(panPitch-dy*0.006,-0.55,1.30);
+  if(camMode!==2){               // keep the chase look-around sane
+    panYaw=clamp(panYaw,-Math.PI*0.92,Math.PI*0.92);
+  }
+}
+cv.addEventListener('pointerdown',e=>{
+  if(startEl.style.display!=='none')return;     // ignore until the game starts
+  drags.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  try{cv.setPointerCapture(e.pointerId);}catch(err){}
+});
+cv.addEventListener('pointermove',e=>{
+  const d=drags.get(e.pointerId);if(!d)return;
+  if(drags.size>=2){                              // two-finger pinch → zoom (orbit)
+    const pts=[...drags.values()];
+    const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+    if(pinchPrev)orbitDist=clamp(orbitDist*(pinchPrev/dist),3.5,22);
+    pinchPrev=dist;
+  }else{
+    panBy(e.clientX-d.x,e.clientY-d.y);
+  }
+  d.x=e.clientX;d.y=e.clientY;
+});
+function endDrag(e){drags.delete(e.pointerId);if(drags.size<2)pinchPrev=0;}
+cv.addEventListener('pointerup',endDrag);
+cv.addEventListener('pointercancel',endDrag);
+cv.addEventListener('wheel',e=>{
+  e.preventDefault();
+  orbitDist=clamp(orbitDist*(e.deltaY>0?1.1:0.9),3.5,22);
+},{passive:false});
 
 const startEl=document.getElementById('start');
 function begin(){
@@ -1405,17 +1451,32 @@ let shake=0;
 function updateCamera(dt){
   const f={x:Math.sin(car.heading),z:Math.cos(car.heading)};
   const spd=Math.hypot(car.vx,car.vz);
-  if(camMode===0){
-    camPos.set(car.x-f.x*6.6,car.y+2.7,car.z-f.z*6.6);
-    camPos.y=Math.max(camPos.y,groundHeight(camPos.x,camPos.z)+0.7);
-    camera.position.lerp(camPos,1-Math.exp(-4.5*dt));
-    camTgt.set(car.x+f.x*3,car.y+1.25,car.z+f.z*3);
-  }else{
+  if(camMode===1){
+    /* HOOD — driver's-eye view (pan is ignored here) */
     tmpA.set(0,1.66,0.45);
     J.car.updateMatrixWorld();
     J.car.localToWorld(tmpA);
     camera.position.copy(tmpA);
     camTgt.set(car.x+f.x*12,car.y+1.0,car.z+f.z*12);
+  }else{
+    const orbit=camMode===2;
+    /* in CHASE the look-around eases back behind the jeep when you let go */
+    if(!orbit&&drags.size===0){
+      const k=Math.exp(-2.4*dt);
+      panYaw*=k;panPitch*=k;
+    }
+    const dist=orbit?orbitDist:6.6;
+    const yaw=car.heading+Math.PI+panYaw;          // PI = directly behind
+    const pitch=clamp((orbit?0.30:0.24)+panPitch,-0.50,1.32);
+    const cph=Math.cos(pitch);
+    const tx=car.x,ty=car.y+1.15,tz=car.z;          // aim at the jeep
+    camPos.set(tx+Math.sin(yaw)*dist*cph,
+               ty+Math.sin(pitch)*dist,
+               tz+Math.cos(yaw)*dist*cph);
+    camPos.y=Math.max(camPos.y,groundHeight(camPos.x,camPos.z)+0.6);
+    /* snappier follow while driving, smooth while inspecting */
+    camera.position.lerp(camPos,1-Math.exp(-(orbit?8:4.5)*dt));
+    camTgt.set(tx+(orbit?0:f.x*1.6),ty,tz+(orbit?0:f.z*1.6));
   }
   shake=lerp(shake,(car.road?0.004:0.016)*Math.min(spd/10,1),0.1);
   camera.position.x+=(Math.random()-0.5)*shake;
