@@ -33,6 +33,8 @@
   #speed{font-family:Impact,"Arial Black",sans-serif;font-size:42px;letter-spacing:.02em;line-height:1}
   #gauge small{font-size:10px;letter-spacing:.22em;color:var(--dim);margin-top:2px}
   #odo{font-size:11px;color:var(--olive);margin-top:5px;letter-spacing:.08em;font-variant-numeric:tabular-nums}
+  #fps{display:block;font:10.5px/1.4 ui-monospace,Consolas,monospace;color:var(--dim);
+    letter-spacing:.06em;font-variant-numeric:tabular-nums;margin-top:3px;opacity:.8}
   #gear{position:absolute;top:30px;right:30px;font-family:Impact,"Arial Black",sans-serif;
     font-size:20px;color:var(--amber);line-height:1}
   #gear small{font-size:8px;letter-spacing:.14em;color:var(--dim);display:block;text-align:center;margin-top:-1px}
@@ -105,7 +107,7 @@
   </div>
 </div>
 
-<div id="badge" class="panel"><b>PINE RIDGE TRAIL</b><span id="bsub">procedural forest · v6</span></div>
+<div id="badge" class="panel"><b>PINE RIDGE TRAIL</b><span id="bsub">procedural forest · v6</span><span id="fps">-- FPS</span></div>
 
 <div id="pills">
   <div class="pill panel" id="pCam" title="Camera (C)">CHASE</div>
@@ -1783,8 +1785,9 @@ function updateCamera(dt){
 
 /* ---------------- HUD ---------------- */
 const elSpeed=document.getElementById('speed'),elArc=document.getElementById('arc'),
-      elOdo=document.getElementById('odo'),elGear=document.getElementById('gear');
-let odo=0,hudT=0;
+      elOdo=document.getElementById('odo'),elGear=document.getElementById('gear'),
+      elFps=document.getElementById('fps');
+let odo=0,hudT=0,fpsFilt=60;
 function updateHUD(dt){
   hudT+=dt;if(hudT<0.1)return;hudT=0;
   const kmh=Math.round(Math.hypot(car.vx,car.vz)*3.6);
@@ -1793,6 +1796,7 @@ function updateHUD(dt){
   elOdo.textContent=odo.toFixed(2)+' km';
   const label=car.vF<-0.4?'R':(car.vF<0.4?'N':String(car.gear+1));
   elGear.firstChild.textContent=label;
+  elFps.textContent=Math.round(fpsFilt)+' FPS';
 }
 
 /* ---------------- main loop ---------------- */
@@ -1802,6 +1806,7 @@ car.y=groundHeight(car.x,car.z);
 let frame=0;
 function loop(now){
   requestAnimationFrame(loop);
+  if(now>last) fpsFilt=fpsFilt*0.9+(1000/(now-last))*0.1;
   let dt=Math.min((now-last)/1000,1/25);last=now;
   if(dt<=0)return;
   windUniform.value=now*0.001;
