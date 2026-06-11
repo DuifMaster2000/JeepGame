@@ -1798,7 +1798,7 @@ function updateCamera(dt){
 const elSpeed=document.getElementById('speed'),elArc=document.getElementById('arc'),
       elOdo=document.getElementById('odo'),elGear=document.getElementById('gear'),
       elFps=document.getElementById('fps');
-let odo=0,hudT=0,fpsFilt=60;
+let odo=0,hudT=0,fpsFilt=60,fpsFrames=0,fpsWin=0;
 function updateHUD(dt){
   hudT+=dt;if(hudT<0.1)return;hudT=0;
   const kmh=Math.round(Math.hypot(car.vx,car.vz)*3.6);
@@ -1851,8 +1851,15 @@ car.y=groundHeight(car.x,car.z);
 let frame=0;
 function loop(now){
   requestAnimationFrame(loop);
-  if(now>last) fpsFilt=fpsFilt*0.9+(1000/(now-last))*0.1;
-  let dt=Math.min((now-last)/1000,1/25);last=now;
+  const rawDt=now-last;
+  // FPS = real frames counted over a ~0.5s window (true average, not a
+  // hitch-biased rate EMA). Skip tab-out gaps so they don't corrupt it.
+  if(rawDt>1000){fpsFrames=0;fpsWin=0;}
+  else if(rawDt>0){
+    fpsFrames++;fpsWin+=rawDt;
+    if(fpsWin>=500){fpsFilt=fpsFrames*1000/fpsWin;fpsFrames=0;fpsWin=0;}
+  }
+  let dt=Math.min(rawDt/1000,1/25);last=now;
   if(dt<=0)return;
   windUniform.value=now*0.001;
   adaptiveQuality(dt);
