@@ -195,7 +195,7 @@ function onRoad(x,z){return Math.abs(x-roadX(z))<ROAD_HALF+0.4;}
 
 /* ---------------- renderer / scene ---------------- */
 const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.5));
 renderer.setSize(innerWidth,innerHeight);
 renderer.shadowMap.enabled=true; /* disabled below if software GPU detected */
 renderer.shadowMap.type=THREE.PCFSoftShadowMap;
@@ -273,9 +273,9 @@ const sun=new THREE.DirectionalLight(0xfff4e0,2.6);
 sun.castShadow=true;
 sun.shadow.mapSize.set(2048,2048);
 sun.shadow.bias=-0.00035;
-sun.shadow.camera.near=2;sun.shadow.camera.far=220;
-sun.shadow.camera.left=-55;sun.shadow.camera.right=55;
-sun.shadow.camera.top=55;sun.shadow.camera.bottom=-55;
+sun.shadow.camera.near=2;sun.shadow.camera.far=140;
+sun.shadow.camera.left=-35;sun.shadow.camera.right=35;
+sun.shadow.camera.top=35;sun.shadow.camera.bottom=-35;
 scene.add(sun);scene.add(sun.target);
 
 /* ---------------- procedural textures (canvas) ---------------- */
@@ -1030,10 +1030,12 @@ function ensureChunks(z){
   for(let i=ci-BEHIND;i<=ci+AHEAD;i++)if(!chunks.has(i))makeChunk(i);
   chunks.forEach((v,k)=>{
     if(k<ci-BEHIND-1||k>ci+AHEAD+1){disposeChunk(k);return;}
-    if(v.lod){ // maple LOD: full geometry near the jeep, baked impostor beyond
+    const shadowNear=Math.abs(k-ci)<=1;
+    v.group.traverse(o=>{if(o.isInstancedMesh)o.castShadow=shadowNear;});
+    if(v.lod){
       const near=Math.abs(k-ci)<=MAPLE.fullRange;
       for(const m of v.lod.full)m.visible=near;
-      for(const m of v.lod.imp)m.visible=!near;
+      for(const m of v.lod.imp){m.visible=!near;m.castShadow=false;}
     }
   });
 }
@@ -1796,7 +1798,41 @@ function updateHUD(dt){
   elOdo.textContent=odo.toFixed(2)+' km';
   const label=car.vF<-0.4?'R':(car.vF<0.4?'N':String(car.gear+1));
   elGear.firstChild.textContent=label;
-  elFps.textContent=Math.round(fpsFilt)+' FPS';
+  const ri=renderer.info.render;
+  elFps.textContent=Math.round(fpsFilt)+' FPS · '+ri.calls+'dc · '+(ri.triangles/1000|0)+'k tri'+(aqLevel?' · Q'+aqLevel:'');
+}
+
+/* ---------------- adaptive quality ---------------- */
+let aqLevel=0,aqTimer=0;
+const aqNativePR=Math.min(window.devicePixelRatio,1.5);
+function adaptiveQuality(dt){
+  aqTimer+=dt;if(aqTimer<2)return;aqTimer=0;
+  if(compatOn)return;
+  if(fpsFilt<35&&aqLevel<3){
+    aqLevel++;
+    if(aqLevel===1){
+      renderer.setPixelRatio(Math.min(aqNativePR,1));
+      toast('Auto quality: pixel ratio reduced');
+    }else if(aqLevel===2){
+      sun.shadow.mapSize.set(1024,1024);sun.shadow.map&&(sun.shadow.map.dispose(),sun.shadow.map=null);
+      toast('Auto quality: shadow resolution reduced');
+    }else if(aqLevel===3){
+      sun.castShadow=false;renderer.shadowMap.enabled=false;
+      toast('Auto quality: shadows disabled');
+    }
+    elFps.style.color='var(--amber)';
+  }else if(fpsFilt>55&&aqLevel>0){
+    aqLevel--;
+    if(aqLevel===2){
+      sun.castShadow=true;renderer.shadowMap.enabled=true;renderer.shadowMap.needsUpdate=true;
+    }else if(aqLevel===1){
+      sun.shadow.mapSize.set(SOFT_GPU?512:2048,SOFT_GPU?512:2048);
+      sun.shadow.map&&(sun.shadow.map.dispose(),sun.shadow.map=null);
+    }else if(aqLevel===0){
+      renderer.setPixelRatio(aqNativePR);
+      elFps.style.color='';
+    }
+  }
 }
 
 /* ---------------- main loop ---------------- */
@@ -1810,6 +1846,7 @@ function loop(now){
   let dt=Math.min((now-last)/1000,1/25);last=now;
   if(dt<=0)return;
   windUniform.value=now*0.001;
+  adaptiveQuality(dt);
   physics(dt);
   odo+=Math.hypot(car.vx,car.vz)*dt/1000;
   if((frame++&3)===0)ensureChunks(car.z);
@@ -1852,7 +1889,7 @@ addEventListener('resize',()=>{
   renderer.setSize(innerWidth,innerHeight);
 });
 document.addEventListener('visibilitychange',()=>{last=performance.now();});
-window.__dbg={MAPLE,chunks,renderer,car,enableCompat}; // console/testing handle into the IIFE
+window.__dbg={MAPLE,chunks,renderer,car,enableCompat,get aqLevel(){return aqLevel;}}; // console/testing handle into the IIFE
 })();
 </script>
 </body>
