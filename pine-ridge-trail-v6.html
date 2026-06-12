@@ -1658,13 +1658,25 @@ applyRenderDistance(AHEAD); // sync the label with the default
 const car={
   x:roadX(0),z:0,y:0,heading:Math.atan2(roadDX(0),1),
   vx:0,vz:0,steer:0,vF:0,accelS:0,gear:0,rpm:850,
+  yawRate:0,latA:0,wheelSpin:0,
 };
 const nSmooth=new THREE.Vector3(0,1,0);
 function resetCar(){
   car.x=roadX(car.z);car.heading=Math.atan2(roadDX(car.z),1);
   car.vx=car.vz=0;car.vF=0;car.gear=0;car.rpm=850;
+  car.yawRate=0;car.latA=0;car.wheelSpin=0;
 }
 let WHEELBASE=GEO.zf-GEO.zr;             // updated when the HD model loads
+/* ---- chassis & tire constants for the slip model ---- */
+const MU_ROAD=0.95,MU_GRAVEL=0.68; // peak friction: asphalt vs gravel/grass
+const M_IZ=0.47;                   // mass / yaw inertia (1/m^2) ~ 1.46 m gyration radius
+const HCG=0.62;                    // CG height (m) -> longitudinal load transfer
+const TIRE_B=7.5,TIRE_C=1.6;       // Pacejka-ish curve: peak near 8 deg, gentle falloff
+const FRONT_GRIP=0.93;             // front peaks slightly lower -> mild built-in understeer
+const DRIVE_REAR=0.65;             // 4WD torque split, rear-biased (throttle oversteer)
+const BRAKE_F=0.62;                // brake bias toward the front axle
+const TC_DRIVE=0.65;               // fraction of drive force that eats lateral grip
+const ABS_USE=0.9;                 // ABS: wheel brakes never fully lock the circle
 const VMAX=52;                           // ~187 km/h top speed
 /* 6-speed gearbox: ceiling speed (m/s) of each gear + torque multiplier */
 const GEAR_TOP  =[9, 17, 26, 36, 45, 52];
@@ -1684,23 +1696,45 @@ function physics(dt){
   const target=steerIn*maxSteer;
   car.steer+=clamp(target-car.steer,-4.2*dt,4.2*dt);
 
-  /* longitudinal forces */
+  /* longitudinal forces (per unit mass), limited by what each axle's tires
+     can transmit. Whatever an axle spends here is gone from its lateral
+     grip below (traction circle). */
   const road=onRoad(car.x,car.z);
-  let a=0;
+  const mu=road?MU_ROAD:MU_GRAVEL;
   const throttle=input.fwd;
-  if(throttle)a+=15*GEAR_FORCE[car.gear]*(road?1:0.78); // wheel force tapers per gear
+  /* static weight split + load transfer from the smoothed longitudinal accel */
+  const lF=GEO.zf,lR=-GEO.zr;
+  const fzF=clamp(lR/WHEELBASE-car.accelS*HCG/(9.81*WHEELBASE),0.18,0.82),fzR=1-fzF;
+  const capF=mu*9.81*fzF,capR=mu*9.81*fzR;
+  let driveD=0,brakeD=0,hbD=0;
+  if(throttle)driveD=15*GEAR_FORCE[car.gear]; // engine demand tapers per gear
   if(input.back){
-    if(vF>0.4)a-=15.5;           // brake
-    else a-=6.5*(1+Math.min(vF,0)/8); // reverse up to ~8 m/s
+    if(vF>0.4)brakeD=15.5;           // brake
+    else driveD-=6.5*(1+Math.min(vF,0)/8); // reverse up to ~8 m/s
   }
+  if(input.hand&&Math.abs(vF)>0.3)hbD=11;  // handbrake locks the rear axle
+  /* excess rear demand = wheelspin (visual + revs) */
+  car.wheelSpin=lerp(car.wheelSpin,clamp((driveD*DRIVE_REAR-capR)*0.5,0,9),1-Math.exp(-7*dt));
+  /* the engine can't push much past what slipping tires transmit */
+  if(driveD>0)driveD=Math.min(driveD,(capF+capR)*1.35);
+  const sgn=vF>=0?1:-1;
+  const fxFd=driveD*(1-DRIVE_REAR)-sgn*brakeD*BRAKE_F;
+  const fxRd=driveD*DRIVE_REAR-sgn*(brakeD*(1-BRAKE_F)+hbD);
+  const fxF=clamp(fxFd,-capF,capF),fxR=clamp(fxRd,-capR,capR);
+  /* friction-circle usage: drive force only partly eats lateral grip,
+     wheel braking is ABS-limited, the handbrake locks the rear outright */
+  let useF=Math.min((Math.abs(driveD)*(1-DRIVE_REAR)*TC_DRIVE+brakeD*BRAKE_F)/capF,1);
+  let useR=Math.min((Math.abs(driveD)*DRIVE_REAR*TC_DRIVE+brakeD*(1-BRAKE_F))/capR,1);
+  if(brakeD){useF=Math.min(useF,ABS_USE);useR=Math.min(useR,ABS_USE);}
+  if(hbD)useR=1;
+  let a=fxF+fxR;
   a-=vF*0.0023*Math.abs(vF);      // aero drag (sets ~50 m/s flat-ground top)
   a-=Math.sign(vF)*(road?0.45:0.9); // rolling resistance
-  if(input.hand&&Math.abs(vF)>0.5)a-=Math.sign(vF)*9;
   /* slope along travel */
   const hA=groundHeight(car.x+f.x*1.6,car.z+f.z*1.6);
   const hB=groundHeight(car.x-f.x*1.6,car.z-f.z*1.6);
   a-=9.81*((hA-hB)/3.2)*0.85;
-  const vFn=vF+a*dt;
+  const vFn=vF+(a+car.yawRate*vL)*dt;
   if(Math.abs(vFn)<0.12&&!throttle&&!input.back)vF=0;else vF=vFn;
   vF=clamp(vF,-9,VMAX);
 
@@ -1709,21 +1743,44 @@ function physics(dt){
   let g=0;while(g<GEAR_TOP.length-1&&fwdV2>=GEAR_TOP[g])g++;
   car.gear=g;
   const gLo=g===0?0:GEAR_TOP[g-1],gHi=GEAR_TOP[g];
-  const gFrac=clamp((fwdV2-gLo)/(gHi-gLo),0,1);
+  const gFrac=clamp((fwdV2+car.wheelSpin*0.6-gLo)/(gHi-gLo),0,1); // revs flare on wheelspin
   let targetRpm=IDLE_RPM+(REDLINE-IDLE_RPM)*gFrac;
   if(fwdV2<0.4)targetRpm=IDLE_RPM+(throttle?(REDLINE-IDLE_RPM)*0.5:0); // rev/idle at standstill
   car.rpm=lerp(car.rpm,targetRpm,1-Math.exp(-9*dt));
 
-  /* lateral grip (gravel slides, handbrake slides a lot) */
-  let grip=road?5.2:4.2;
-  grip/=(1+Math.abs(vF)*0.012);
-  if(input.hand)grip*=0.28;
-  vL*=Math.exp(-grip*dt);
-
-  /* yaw from front wheels */
-  if(Math.abs(vF)>0.05){
-    car.heading+=vF/WHEELBASE*Math.tan(car.steer)*dt;
+  /* ---- lateral: dynamic single-track model with slip-angle tire forces ----
+     Each axle turns its slip angle into lateral force through a curve that
+     peaks (~8 deg) then falls off, scaled by vertical load and by whatever
+     friction the traction circle has left after drive/brake/handbrake.
+     Front saturating first = understeer; unloading the rear via throttle,
+     lift-off load transfer or handbrake = oversteer. Below ~4 m/s it blends
+     into the old kinematic steering so parking stays docile. */
+  const latF=FRONT_GRIP*9.81*mu*fzF*Math.sqrt(Math.max(0.04,1-useF*useF));
+  const latR=9.81*mu*fzR*Math.sqrt(Math.max(0.04,1-useR*useR));
+  const dyn=clamp((vF-1.2)/2.8,0,1);   // 0 = kinematic (crawl/reverse), 1 = full dynamics
+  const rKin=Math.abs(vF)>0.05?vF/WHEELBASE*Math.tan(car.steer):0;
+  let r=car.yawRate;
+  if(dyn>0){
+    const sub=Math.ceil(dt/0.008),h=dt/sub,cs=Math.cos(car.steer),vxA=Math.max(vF,2.5);
+    let ay=0;
+    for(let i=0;i<sub;i++){
+      const aSf=Math.atan2(vL+r*lF,vxA)-car.steer;  // front slip angle
+      const aSr=Math.atan2(vL-r*lR,vxA);            // rear slip angle
+      const FyF=-latF*Math.sin(TIRE_C*Math.atan(TIRE_B*aSf));
+      const FyR=-latR*Math.sin(TIRE_C*Math.atan(TIRE_B*aSr));
+      r+=(lF*FyF*cs-lR*FyR)*M_IZ*h;                 // yaw moment
+      vL+=(FyF*cs+FyR-r*vF)*h;                      // lateral accel - rotation coupling
+      ay+=(FyF*cs+FyR)*h;
+    }
+    car.latA=lerp(car.latA,ay/dt,1-Math.exp(-8*dt));
+  }else{
+    car.latA=lerp(car.latA,rKin*vF,1-Math.exp(-8*dt));
   }
+  r=lerp(rKin,r,dyn);
+  vL=lerp(vL*Math.exp(-6*dt),vL,dyn);
+  vL=clamp(vL,-30,30);
+  car.yawRate=r;
+  car.heading+=r*dt;
   /* recompose velocity in NEW heading (this produces natural drift) */
   const f2={x:Math.sin(car.heading),z:Math.cos(car.heading)};
   const s2={x:f2.z,z:-f2.x};
@@ -1748,7 +1805,7 @@ function physics(dt){
         car.x=list[i][0]+nx*rr;car.z=list[i][1]+nz*rr;
         const dot=car.vx*nx+car.vz*nz;
         if(dot<0){car.vx-=nx*dot*1.4;car.vz-=nz*dot*1.4;}
-        car.vx*=0.55;car.vz*=0.55;
+        car.vx*=0.55;car.vz*=0.55;car.yawRate*=0.6;
         if(snd.ready&&!snd.muted)snd.eGain.gain.setTargetAtTime(0.02,snd.C.currentTime,0.01);
       }
     }
@@ -1787,14 +1844,15 @@ function physics(dt){
     w.off=lerp(w.off,res,1-Math.exp(-16*dt));
     w.pivot.position.y=w.baseY+w.off;
     if(w.steer)w.pivot.rotation.y=car.steer;
-    w.spin.rotation.x+=vF/GEO.r*dt;
+    /* rears: spin up with wheelspin, freeze when the handbrake locks them */
+    const surf=w.steer?vF:(input.hand&&Math.abs(vF)>0.3?0:vF+car.wheelSpin);
+    w.spin.rotation.x+=surf/GEO.r*dt;
   }
   J.steeringWheel.rotation.z=-car.steer*2.6;
 
   /* body weight transfer (cosmetic) */
   J.body.rotation.x=lerp(J.body.rotation.x,clamp(-car.accelS*0.0045,-0.045,0.045),0.1);
-  const yawRate=Math.abs(vF)>0.05?vF/WHEELBASE*Math.tan(car.steer):0;
-  J.body.rotation.z=lerp(J.body.rotation.z,clamp(yawRate*vF*0.012,-0.06,0.06),0.1);
+  J.body.rotation.z=lerp(J.body.rotation.z,clamp(car.latA*0.012,-0.06,0.06),0.1);
 
   /* brake / reverse lights */
   M.tail.emissiveIntensity=(input.back&&vF>0.3)||input.hand?1.8:(weather==='storm'?0.95:0.18);
@@ -1802,7 +1860,7 @@ function physics(dt){
 
   /* dust from rear wheels */
   const spd=Math.hypot(car.vx,car.vz);
-  if(spd>3&&(throttle||Math.abs(vL)>1.5||input.hand)){
+  if(spd>3&&(throttle||Math.abs(vL)>1.5||input.hand||car.wheelSpin>2)){
     for(const lx of[GEO.track,-GEO.track]){
       if(Math.random()<clamp(spd/18,0.25,0.95)){
         const bz=GEO.zr-0.3;
