@@ -57,6 +57,14 @@ free of THREE/DOM dependencies (except `location` for the seed).
 - `baseHeight(x,z)` = raw terrain; `groundHeight(x,z)` = terrain flattened onto
   roads (via `roadQuery`, a spatial-hash lookup of road segments). Physics,
   chunk meshes and vegetation all use `groundHeight` — keep them consistent.
+- Car handling is a dynamic single-track (bicycle) model in `physics()`: per-axle
+  slip angles → Pacejka-style lateral force (peak ~8°, falls off past it), scaled
+  by load transfer and a traction circle (drive/brake/handbrake force spends
+  friction that lateral grip then loses). Understeer, oversteer and power slides
+  are emergent, not scripted. Below ~4 m/s and in reverse it blends to kinematic
+  steering. Tuning knobs are the named constants right above `physics()` (`MU_*`,
+  `FRONT_GRIP`, `DRIVE_REAR`, `TIRE_B/C`…); the lateral solver substeps at 8 ms —
+  keep that with the 40 ms frame-dt clamp for stability.
 - Road network: hubs → Gabriel graph → A* over a terrain-cost grid with a
   corridor-reuse discount (creates merges/forks); deduplicated into `ROADS.sections`
   (asphalt `'a'` / gravel `'g'`); profiles grade-limited to 13% by an exact
